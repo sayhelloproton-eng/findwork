@@ -11,11 +11,16 @@ const guide=read('GETTING_STARTED.md');
 const skill=read('skills/job-search/SKILL.md');
 const contract=read('skills/job-search/references/private-policy.md');
 
-test('README starts How to use with a link to the AI onboarding guide',()=>{
- const section=readme.split('## 如何使用\n')[1].split('\n## ')[0].trim();
- assert.match(section,/^\*\*\[AI 使用引导文档\]\(https:\/\/github\.com\/sayhelloproton-eng\/findwork\/blob\/main\/GETTING_STARTED\.md\)/);
- assert.ok(section.includes('https://github.com/sayhelloproton-eng/findwork/blob/main/GETTING_STARTED.md'));
+test('README starts with a compact AI onboarding link and concise sections',()=>{
+ const url='https://github.com/sayhelloproton-eng/findwork/blob/main/GETTING_STARTED.md';
+ const section=readme.split('### 如何使用\n')[1].split('\n### ')[0].trim();
+ assert.ok(section.includes('**['+url+']('+url+')**'));
+ assert.equal((readme.match(/https:\/\/github\.com\/sayhelloproton-eng\/findwork\/blob\/main\/GETTING_STARTED\.md/g)||[]).length,2);
  assert.ok(fs.existsSync(path.join(repo,'GETTING_STARTED.md')));
+ assert.equal((readme.match(/^## /gm)||[]).length,0,'Do not use oversized second-level headings');
+ assert.equal((readme.match(/^### /gm)||[]).length,4);
+ assert.ok(readme.length<1600,'Landing README should remain concise');
+ assert.ok(readme.includes('| 入库与去重 |'));
 });
 
 test('onboarding uses confirmed three labels consistently with private inputs',()=>{
