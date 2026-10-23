@@ -37,6 +37,12 @@ Findwork 是使用**用户自己的招聘账号和岗位期望**进行 AI 辅助
 **阶段完成证据：** 仓库身份正确、Node 和 npm 满足要求、依赖实际安装、`npm run verify` 通过；记录是否已有可用的本地数据库与 Web。不能访问用户电脑就说明这一阻塞，不假装完成。
 
 ### 第 2 步：引导用户登录招聘平台并确认岗位期望
+**必须使用用户电脑端（Windows/macOS）的 Chrome 网页版，不能用手机 App 登录状态代替。** 当前平台的 PC 网页版职位列表网址，必须从 `platforms/boss/extension/README.md` 的现行安装说明中获取。AI 先在用户电脑已有 Chrome 实例打开网页；用户自行在该网页完成登录、扫码或验证码，AI 不读取密码、Cookie。之后 AI 要核对电脑端 Chrome 确实显示职位卡片，而不是登录页或验证页。
+
+**只保留一个当前目标的职位列表 Tab，并识别该已登录的 Chrome Profile。** 后续扩展加载和采集控制页必须使用这个 Profile，不要打开另一个无登录态的 Chrome。让用户确认网页版里自己的岗位期望：`expect=0` 是系统推荐，`expect=1/2/...` 是账号中自定义期望的顺序；AI 必须根据当前页面及用户选择获取实际索引，不能默认 0 等于前端等固定职业。
+
+**给用户的最短提示：**“我已经在电脑 Chrome 打开招聘平台网页版，请在这个网页完成登录并确认岗位期望；手机 App 登录不算。完成后我来检查职位列表并继续。”
+
 
 **AI 执行：**
 
@@ -52,6 +58,12 @@ Findwork 是使用**用户自己的招聘账号和岗位期望**进行 AI 辅助
 **阶段完成证据：** 对应 Chrome Profile 中的职位列表可用、岗位期望已确认。只有用户说“登录了”还不够，AI 有访问能力时要核对页面。
 
 ### 第 3 步：由 AI 准备 Chrome 扩展，用户仅完成必要的一次加载
+**最短安装路径：** AI 先检查同一 Chrome Profile 是否已安装、启用正确版本的扩展；已有则复用。没有时，AI 构建后检查 `platforms/boss/extension/dist/boss-list-observer/` 目录顶层的 `manifest.json` 与 `actions/detail/dom.html`，计算用户电脑上的真实绝对路径；要加载的是已解压目录，不是 ZIP 或仓库根目录。
+
+AI 在**已登录的 Chrome Profile** 打开 `chrome://extensions/` 并尽量自行操作。需要用户加载时，告诉他打开开发者模式、点击“加载已解压的扩展程序”；macOS 在弹出的文件选择框按 **⌘⇧G**，粘贴 AI 提供的**真实绝对路径**并回车、再点击打开；Windows 可在文件夹选择窗口地址栏粘贴路径。不要让用户自己逐层寻找文件夹。
+
+完成后由 AI 检查扩展已启用、版本正确，读取当前安装实例的**真实扩展 ID**（无法读取 Chrome 内页时才请用户复制 ID 或提供不含隐私的截图）。确认原来登录的职位列表 Tab 还在，才能继续。
+
 
 **AI 执行：**
 
@@ -95,6 +107,14 @@ Findwork 是使用**用户自己的招聘账号和岗位期望**进行 AI 辅助
 **阶段完成证据：** 三份本机文件存在且含用户确认的有效内容，实际 Git 忽略生效；个人资料未进入公开源码或输出。这里用户的确认是必要环节。
 
 ### 第 5 步：AI 自己打开扩展控制页，完成首次岗位采集
+**执行前核对四件事：** PC 端 Chrome 网页版已登录、只有一个目标职位列表 Tab、当前 Profile 内真实扩展 ID、用户选择的岗位期望索引。先查看是否有未完成的采集会话；已有就检查/恢复，不并行开第二个控制页。
+
+AI 用现场取得的值生成 `chrome-extension://<EXTENSION_ID>/actions/detail/dom.html?auto=1&expect=<N>&pages=1`。首次 `pages=1` 验证一批，之后才按用户目标扩大；不能直接沿用示例 `expect=0`。**AI 负责在同一个已登录的 Chrome 实例打开完整 URL**，不强制安装 Playwright/MCP；若 AI 没有权限操作该 Chrome，才请用户在原 Chrome 地址栏粘贴 AI 拼好的完整链接并回车。
+
+之后由扩展自动执行 Refresh → List/首条自然 Detail → 按 jobId 串行获取其他 Detail → 下载 COMPLETE → 多批次时 Scroll。AI 不重新编写点击器、不让用户逐条操作。AI 要读取用户实际 Chrome 下载根目录的本轮平台下载日期目录中的 `list/` 和 `detail/` 文件（具体目录按 `skills/boss-extension/references/results.md` 确定），确认 Chrome Downloads 为 `complete`、JSON 可解析、List `encryptJobId` 与 Detail `jobInfo.encryptId` 一致、JD 非空。单批目标 15 个不同职位，但不足就记录真实差额，不能虚报 `15/15`；控制页已打开或显示 ACK 绝不等于真正落盘成功。
+
+如果出现登录失效、验证码、业务码 37、Chrome 下载失败或 UNKNOWN，按 `skills/boss-extension/references/recovery.md` 与 `results.md` 定位当前会话，保留历史进度，不能盲目重开采集或拿旧文件冒充本轮。
+
 
 **AI 执行，用户不负责逐条点击：**
 

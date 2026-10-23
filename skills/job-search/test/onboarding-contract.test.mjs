@@ -63,6 +63,14 @@ test('AI guide describes staged usage, actual npm commands, and action boundarie
  assert.match(guide,/不强制安装 Playwright/);
  assert.match(guide,/真实可访问的本地链接/);
  assert.match(guide,/用户仅完成必要的一次加载/);
+ assert.match(guide,/手机 App 登录状态代替/);
+ assert.match(guide,/platforms\/boss\/extension\/README\.md/);
+ assert.ok(read('platforms/boss/extension/README.md').includes('https://www.zhipin.com/web/geek/jobs'));
+ assert.match(guide,/一个当前目标的职位列表 Tab/);
+ assert.match(guide,/dist\/boss-list-observer/);
+ assert.match(guide,/同一个已登录的 Chrome 实例/);
+ assert.match(guide,/Chrome Downloads 为/);
+ assert.match(guide,/15\/15/);
 });
 
 test('relative Markdown links resolve and public landing page has no vendor brand',()=>{
