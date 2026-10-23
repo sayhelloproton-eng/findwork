@@ -46,5 +46,5 @@ export function createApp(options:any={}){
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const {server}=createApp({demo:process.argv.includes('--demo'),localFixtures:process.argv.includes('--local-fixtures')?resolve('.private/boss-fixtures/fixtures.json'):undefined});
- const port=Number(process.env.PORT||4317);server.listen(port,'127.0.0.1',()=>console.log(`Job Search System: http://127.0.0.1:${port}`));
+ const port=Number(process.env.PORT||4317);server.listen(port,'127.0.0.1',()=>console.log(`Findwork: http://127.0.0.1:${port}`));
 }

@@ -4,4 +4,4 @@
 
 `actions/detail/dom.html` 是唯一正式采集控制页；MAIN 只观察、ISOLATED 只桥接、Worker 只下载与恢复；Greet 独立并需逐职位授权。扩展只保存 JSON，无数据库依赖；完整求职系统的 Web、后端与 SQLite 则由主仓库 `skills/job-search/SKILL.md` 负责。
 
-工程变更须遵守本机工程协议。禁止删除真实下载、Chrome Storage、数据库或真实 Greet；不得擅自 Git 提交、推送或发布。
+参与开发请遵守仓库根目录的 [AGENTS.md](../../../AGENTS.md) 和 [CONTRIBUTING.md](../../../CONTRIBUTING.md)；仅用合成数据运行测试，不删除用户真实下载、Chrome Storage、数据库或沟通记录。提交前验证扩展与数据边界，不随意更改本目录原有 MIT 版权声明。

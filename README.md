@@ -28,4 +28,4 @@ Findwork 利用用户在招聘平台设置的**岗位期望**完成初筛，再�
 - **个人数据留在本地**：简历画像、求职策略、岗位数据库及沟通记录不包含在公开仓库中。
 - **逐步接入平台**：目前支持一个招聘平台的采集与授权沟通，其他平台尚需接入；不负责投递后的聊天和面试跟进。
 
-[架构与开发说明](./docs/DESIGN.md) · [AI 使用引导](./GETTING_STARTED.md)
+[架构说明](./docs/DESIGN.md) · [MIT 许可](./LICENSE) · [项目声明](./DISCLAIMER.md) · [隐私说明](./PRIVACY.md) · [安全反馈](./SECURITY.md) · [参与贡献](./CONTRIBUTING.md)

@@ -2,7 +2,7 @@
 
 独立 Chrome MV3 工具：捕获 BOSS 网页自然产生的职位 List / Detail 响应并保存完整 JSON；另提供**逐职位授权**的招聘沟通（Greet）。非 BOSS 官方产品。
 
-**扩展不需要 Job Search System、SQLite、Node 后台或数据库配置。采集的终点是 Chrome 下载 COMPLETE 和本轮文件身份校验，不会自动入库或投递简历。**
+**扩展可独立运行，不依赖 Findwork Web、SQLite、Node 后台或数据库配置。采集的终点是 Chrome 下载 COMPLETE 和本轮文件身份校验，不会自动入库或投递简历。**
 
 ## 一眼看懂
 

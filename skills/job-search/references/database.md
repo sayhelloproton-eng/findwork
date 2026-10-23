@@ -1,4 +1,4 @@
-# Job Search System v6｜300 条采集及业务操作合同
+# Findwork v6｜岗位导入与状态管理合同
 
 唯一业务事实库 app/db/runtime/jobs.sqlite；schema v6（jobs、job_details、list_responses、job_events）。原始 BOSS List 每个接口响应保存一份完整 JSON；每个 encryptJobId 对应一条 jobs，原始对象在 list_json，原始 Detail 顶层回执在 job_details.raw_envelope_json、完整 zpData 在 detail_json，Greet 原始回执在 greet_raw_json。未知新字段仍保留。结构化字段只是从原始事实抽取的可查询索引，不覆盖原始值。
 

@@ -5,7 +5,7 @@
 ## 1. 当前设计原则
 
 - **唯一正式 Detail**：按自然 List 的职位 ID 唯一定位真实 DOM 卡片，点击后只保存网页自然产生的响应。不额外构造 Detail HTTP、不绕过平台风控。
-- **边界只到下载文件**：扩展仅依赖 Chrome Storage（运行状态与回执）及 Chrome Downloads（JSON 文件）；不直接读写 SQLite，不调用外部 Web/后端数据库，不配置 Job Search System。
+- **边界只到下载文件**：扩展仅依赖 Chrome Storage（运行状态与回执）及 Chrome Downloads（JSON 文件）；不直接读写 SQLite，不调用外部 Web/后端数据库，不依赖 Findwork 主应用配置。
 - **严格实际证据**：每批 List、每条 Detail 都要求自然响应、职位 ID 对账与 Chrome COMPLETE；阶段日志和页面 ACK 不等于成功。
 - **独立授权沟通**：Greet 是另一个真实对外动作，不参加 Detail 编排，用户逐职位授权，UNKNOWN 不补发。
 
