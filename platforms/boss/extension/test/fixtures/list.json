@@ -1,0 +1,15 @@
+{
+  "code": 0,
+  "message": "synthetic",
+  "zpData": {
+    "jobList": [
+      {
+        "encryptJobId": "syntheticJob2026AAA",
+        "jobName": "虚构全栈工程师",
+        "brandName": "虚构公司",
+        "cityName": "虚构城市"
+      }
+    ],
+    "hasMore": false
+  }
+}

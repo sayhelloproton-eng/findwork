@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "BOSS Job Collector",
+  "version": "1.1.21",
+  "description": "Download natural BOSS job lists and details as JSON, with optional authorized greetings.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "downloads",
+    "webNavigation",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.zhipin.com/*"
+  ],
+  "background": {
+    "service_worker": "auto-entry.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.zhipin.com/web/geek/jobs*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false,
+      "js": [
+        "core/network/normalizer.js",
+        "core/network/network-allowlist.js",
+        "core/network/main-hook.js"
+      ]
+    },
+    {
+      "matches": [
+        "https://www.zhipin.com/web/geek/jobs*"
+      ],
+      "run_at": "document_start",
+      "world": "ISOLATED",
+      "all_frames": false,
+      "js": [
+        "core/capture/page-observer.js"
+      ]
+    }
+  ]
+}

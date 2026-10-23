@@ -1,0 +1,4 @@
+interface:
+  display_name: "Findwork 岗位管理"
+  short_description: "多平台采集入库去重，按个人画像、求职偏好和排除条件评估岗位，授权后沟通并记录回执"
+  default_prompt: "Use $job-search to ingest verified job List/Detail files into Findwork, deduplicate using existing database history, read the three private user policies, assess pending jobs, save decisions, and prepare a consent-gated contact shortlist. Never resend or claim success without a verified receipt."

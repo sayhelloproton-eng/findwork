@@ -1,0 +1,173 @@
+*{box-sizing:border-box}
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#25334a;background:#f5f7fb}
+body{margin:0}#root{min-height:100vh}
+.worktable{max-width:1800px;margin:0 auto;padding:19px 24px 28px}
+.worktable-header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:13px}
+.worktable-header .ant-typography{line-height:1.4}
+.stats-row{margin-bottom:12px}
+.stat-card{height:100%;box-shadow:none;border-color:#e4e9f0}
+.stat-card.selected{border-color:#91bee7;background:#f5faff}
+.stat-card .ant-card-body{padding:0}
+.stat-button.ant-btn{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;height:62px;padding:9px 13px;font-weight:normal}
+.stat-button .stat-name{color:#65748c;font-size:12px}
+.stat-button .ant-statistic{line-height:1}
+.stat-button .ant-statistic-content{line-height:1.2}
+.filter-card{margin-bottom:11px;box-shadow:none;border-color:#e3e8f0}
+.filter-form{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}
+.filter-form .ant-form-item{margin-bottom:0;min-width:107px;flex:0 1 114px}
+.filter-form .filter-search{flex:1 1 210px}
+.filter-form .ant-form-item-label{padding-bottom:3px}
+.filter-form .ant-form-item-label label{height:auto;font-size:11px;color:#617087}
+.filter-form .ant-select,.filter-form .ant-input{width:100%}
+.filter-form .filter-buttons{flex:0 0 auto;min-width:auto}
+.top-alert,.candidate-alert{margin-bottom:11px}
+.job-table{background:white;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}
+.job-table .ant-table-thead>tr>th{font-size:12px;font-weight:600;color:#53647d}
+.job-table .ant-table-tbody>tr.job-row>td{line-height:1.4;vertical-align:middle}
+.job-row{cursor:pointer}
+.job-row.row-selected>td{background:#edf5ff!important}
+.job-name{font-size:13px;line-height:1.35}
+.job-company{font-size:12px}
+.job-primary,.stack{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
+.table-subtle{font-size:11px}
+.salary-text{color:#1f62ad}
+.online-text{color:#177c60;font-size:11px}
+.two-lines{font-size:11px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.4;max-width:220px}
+.skills-cell,.conditions-cell{display:flex;align-items:flex-start;gap:3px;flex-wrap:wrap;min-width:0;max-height:none;overflow:visible}
+.skills-cell .ant-space{gap:3px!important}
+.fact-tag{margin-inline-end:0;font-size:11px;padding-inline:5px;background:#f2f5fa;color:#5e718e;border-color:#e7edf5}
+.row-expand-button.ant-btn{padding:0;height:auto}
+.table-expander.ant-btn{padding:0 8px;min-width:25px;font-size:19px}
+.detail-wrap{padding:11px 15px 15px;background:#f6f9fd}
+.detail-spinner{padding:35px;text-align:center;color:#687b90}
+.inline-detail{max-width:100%}
+.detail-top{margin:0 0 12px;padding-bottom:10px;border-bottom:1px solid #e3e9f3}
+.detail-card{box-shadow:none}
+.detail-card .ant-card-head{min-height:36px;padding:0 12px}
+.detail-card .ant-card-body{padding:12px}
+.section-gap{margin-top:10px}
+.jd-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.75;font-size:12px;color:#354761;background:#fff;max-height:430px;overflow:auto}
+.company-introduction{white-space:pre-wrap;max-height:130px;overflow:auto;font-size:12px}
+.detail-minor-title{display:block;margin:11px 0 6px;font-weight:600;color:#60718a}
+.detail-card .ant-descriptions-item{padding-bottom:6px!important}
+.detail-card .ant-descriptions-item-label{color:#8593a9;font-size:11px;white-space:nowrap}
+.detail-card .ant-descriptions-item-content{font-size:12px;overflow-wrap:anywhere}
+.record-provenance{display:block;font-size:11px;margin:12px 2px}
+.table-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:13px;flex-wrap:wrap}
+@media(max-width:900px){.worktable{padding:14px}.filter-form .ant-form-item{flex-grow:1}}
+@media(max-width:600px){.worktable{padding:10px}.worktable-header{align-items:flex-start}.stat-button.ant-btn{height:54px;padding:8px}.filter-form .filter-search{flex-basis:100%}.detail-wrap{padding:9px}.table-footer{justify-content:center}}
+
+/* Reuse the skills tag pattern: natural pill widths and content-driven wrapping. */
+.conditions-cell .ant-space{gap:3px!important;width:100%}
+.conditions-cell .ant-space-item{min-width:0;max-width:100%}
+.condition-tag.ant-tag{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.salary-condition.ant-tag{color:#1b61b0;border-color:#cfe0f7;background:#eff6ff;font-weight:600}
+.recruiter-cell{gap:3px}
+.recruiter-name.ant-typography{font-size:12px;line-height:1.35}
+.recruiter-role.ant-typography{font-size:10px;line-height:1.25;color:#8b97a9}
+.recruiter-active.ant-tag{margin:1px 0;max-width:100%;white-space:normal}
+.capture-time.ant-typography{font-size:10px;color:#74839a;line-height:1.4}
+/* Keep the visual column about 150px even when the Table fills a wide viewport. */
+.job-table .ant-table-cell.conditions-column{width:150px!important;min-width:150px!important;max-width:150px!important}
+
+/* Compact, evidence-first job scanning layout. All skill tags remain visible. */
+.worktable{padding:11px 18px 20px}
+.worktable-header{margin-bottom:6px}
+.worktable-header h3.ant-typography{font-size:18px}
+.stats-row{margin-bottom:6px}
+.stat-button.ant-btn{height:35px;padding:5px 11px}
+.stat-button .stat-name{font-size:11px}
+.filter-card{margin-bottom:6px}
+.filter-card .ant-card-body{padding:7px 9px}
+.filter-form{gap:6px}
+.filter-form .ant-form-item-label{padding-bottom:1px}
+.job-table .ant-table-thead>tr>th{padding:7px 7px!important}
+.job-table .ant-table-tbody>tr.job-row>td{padding:5px 7px!important;vertical-align:top}
+.job-primary,.stack{gap:2px}
+.job-name{font-size:12px}
+.job-company{font-size:11px}
+.job-flags{display:flex;flex-wrap:wrap;align-items:center;gap:3px;max-width:100%}
+.source-signal.ant-tag,.closed-signal.ant-tag{margin:0;font-size:10px;line-height:17px;padding:0 4px}
+.source-signal.ant-tag{background:#f5f7fa;border-color:#e4e8f1;color:#69788e}
+.skills-benefits{min-width:0}
+.skills-benefits .skills-cell{min-width:0}
+.welfare-line{display:flex;align-items:flex-start;gap:5px;flex-wrap:wrap;margin-top:5px;min-width:0}
+.micro-label.ant-typography{font-size:10px;color:#9aa8b7;white-space:nowrap;line-height:19px}
+.benefit-tag.ant-tag,.benefit-more.ant-tag{margin:0;padding:0 4px;line-height:18px;font-size:10px;background:#f0f9f5;border-color:#dbeee3;color:#537e6c}
+.benefit-more.ant-tag{background:#f5f7fa;border-color:#e7edf2;color:#8492a4;cursor:help}
+.extra-job-tags{margin-top:4px}
+.communication-time.ant-typography{font-size:10px;line-height:1.25;color:#718198}
+.historical-signal.ant-typography{font-size:10px;line-height:1.2}
+.recruiter-cell{gap:2px}
+.recruiter-active.ant-tag{margin:0;padding:0 5px;line-height:19px;font-size:10px}
+.job-table .ant-table-cell.conditions-column{width:150px!important;min-width:150px!important;max-width:150px!important}
+@media(max-width:900px){.worktable{padding:10px}}
+
+/* DOM-grounded hiring badges and compact company facts. */
+.job-primary .table-subtle.ant-typography{font-size:10px;color:#7e8d9e;line-height:1.3;overflow-wrap:anywhere}
+.dispatch-signal.ant-tag,.urgent-signal.ant-tag{margin:0;font-size:10px;line-height:17px;padding:0 4px}
+.dispatch-signal.ant-tag{color:#a35620;background:#fff4e8;border-color:#f6d6b4}
+.urgent-signal.ant-tag{color:#cc573e;background:#fff1ee;border-color:#f9d0c6}
+
+/* Stored AI summary: dense preview and structured hover. */
+.conditions-cell{display:block}
+.address-preview.ant-typography{display:block;margin-top:4px;color:#748397;font-size:10px;line-height:1.4;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.ai-jd-trigger{display:flex;flex-direction:column;gap:3px;min-width:0;cursor:pointer;outline-offset:2px}
+.ai-jd-caption{align-self:flex-start;font-size:10px;font-weight:650;color:#2464b5;background:#eaf3ff;border-radius:3px;padding:0 4px;line-height:16px}
+.ai-jd-headline{font-size:11px;line-height:1.45;color:#405471;overflow-wrap:anywhere}
+.ai-jd-hint{font-size:10px;color:#97a5b8}
+.ai-jd-pending{font-size:11px;color:#9aa8ba}
+.ai-jd-popover .ant-popover-inner{max-width:min(540px,calc(100vw - 26px));padding:12px 14px}
+.ai-jd-popover-body{width:500px;max-width:calc(100vw - 54px);max-height:65vh;overflow:auto;font-size:12px}
+.ai-jd-group+.ai-jd-group{border-top:1px solid #e9edf3;margin-top:9px;padding-top:9px}
+.ai-jd-group-title{font-size:12px;font-weight:650;margin-bottom:5px;color:#375d93}
+.ai-jd-point{display:flex;gap:6px;color:#40536c;line-height:1.6;margin-bottom:4px;overflow-wrap:anywhere}
+.ai-jd-source{border-top:1px dashed #e0e7ef;margin-top:10px;padding-top:7px;color:#96a5b5;font-size:10px}
+.company-popover{white-space:pre-wrap;max-height:280px;overflow:auto;max-width:430px}
+/* Hover-content triggers show the same pointer as clickable rows. */
+.job-company,.recruiter-active,.capture-time,.two-lines,.communication-time,.historical-signal,.record-updated-time,.source-signal,.dispatch-signal,.urgent-signal{cursor:pointer!important}
+.record-updated-time.ant-typography{font-size:10px;color:#617087;white-space:nowrap;line-height:1.45}
+/* Detail only shows information absent from list; editor is an action, not a repeated status card. */
+.detail-unique .detail-extra-field{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin-bottom:10px}
+.detail-unique .detail-extra-field:last-child{margin-bottom:0}
+.detail-unique .detail-extra-field>.ant-typography:first-child{font-size:11px;color:#70829b}
+.communication-dates .record-updated-time,.communication-dates .communication-time{font-size:10px;line-height:1.4;white-space:nowrap}
+/* All welfare beyond the first five lives in a click-to-open list popover. */
+.welfare-more.ant-btn{height:19px;line-height:18px;padding:0 5px;font-size:10px;border:1px solid #d5e5db;background:#f2faf5;color:#4b7a65;border-radius:4px;cursor:pointer}
+.welfare-more.ant-btn:hover{background:#e7f6ec;color:#286849;border-color:#acd6ba}
+.welfare-more-popover .ant-popover-inner{max-width:min(480px,calc(100vw - 24px))}
+.welfare-more-content{max-width:440px;max-height:50vh;overflow-y:auto}
+/* Four equal quarters: two independent trend lines and two independent pies. */
+.dashboard-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:10px 0 12px;align-items:stretch}
+.dashboard-panel{background:#fff;border:1px solid #e1e8f1;border-radius:8px;padding:12px;min-width:0;min-height:295px}
+.dashboard-panel-title{font-size:13px;font-weight:650;color:#233b59}
+.dashboard-subtitle{font-size:11px;color:#8492a6;margin-top:2px}
+.dashboard-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.trend-graph{min-width:0;margin-top:12px}
+.trend-svg{display:block;width:100%;height:213px;overflow:visible}
+.chart-legend{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 5px 18px;font-size:11px;color:#59708f}
+.chart-legend span,.donut-label{display:inline-flex;align-items:center;gap:5px}
+.chart-legend i,.donut-label i{width:9px;height:9px;border-radius:100%;flex-shrink:0}
+.dashboard-note{font-size:10px;line-height:1.5;color:#93a0b1;margin-top:7px}
+.donut-card{display:flex;flex-direction:column;align-items:stretch}
+.donut{width:129px;height:129px;border-radius:50%;display:flex;justify-content:center;align-items:center;margin:12px auto 7px}
+.donut-hole{width:94px;height:94px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0}
+.donut-hole strong{font-size:23px;line-height:1.2;color:#2d425e}
+.donut-hole span{font-size:10px;color:#8997a8}
+.donut-legend{margin:0 auto;max-width:240px;width:100%;flex:1}
+.donut-legend-item{display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:2px 0;color:#4f637f}
+.donut-legend-item small{color:#9ba9ba;font-size:10px}
+.dashboard-empty,.dashboard-loading{display:flex;justify-content:center;align-items:center;min-height:180px;color:#8390a3;font-size:12px}
+.filter-form{align-items:flex-end;gap:12px}
+.filter-form .ant-form-item{flex:none;min-width:auto}
+.filter-form .filter-location{width:130px}
+.filter-form .filter-company{width:185px}
+.filter-form .filter-radio{width:auto}
+.filter-radio .ant-radio-group{display:inline-flex;white-space:nowrap}
+.filter-radio .ant-radio-button-wrapper{font-size:11px;padding:0 9px}
+@media(max-width:1180px){.dashboard-row{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:610px){.dashboard-row{grid-template-columns:1fr}.dashboard-panel{min-height:230px}.filter-form .filter-location,.filter-form .filter-company{width:100%}.filter-form .filter-radio{width:100%}.filter-radio .ant-radio-group{flex-wrap:wrap;white-space:normal}}
+
+.trend-panel .trend-svg{height:200px}
+.trend-panel .chart-legend{margin-left:0;gap:9px;font-size:10px}
+.trend-panel .dashboard-note{margin-top:6px}

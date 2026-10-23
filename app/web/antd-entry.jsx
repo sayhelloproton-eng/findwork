@@ -1,0 +1,327 @@
+import React,{useCallback,useEffect,useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import {Alert,Button,Card,Col,ConfigProvider,Empty,Form,Pagination,Radio,Row,Select,Space,Spin,Table,Tag,Tooltip,Popover,Typography} from 'antd';
+import zhCN from 'antd/locale/zh_CN';
+const {Title,Text}=Typography;
+const labels={WORTH:'值得投',PENDING:'待评估',NEED_DETAIL:'待评估',PASS:'PASS'};
+const colors={WORTH:'success',PENDING:'default',NEED_DETAIL:'default',PASS:'error'};
+const statusOptions=[{label:'全部',value:''},{label:'值得投',value:'WORTH'},{label:'待评估',value:'PENDING'},{label:'PASS',value:'PASS'}];
+const commOptions=[{label:'全部',value:''},{label:'已沟通',value:'true'},{label:'未沟通',value:'false'}];
+const educationOptions=[{label:'全部',value:''},{label:'不限',value:'不限'},{label:'大专',value:'大专'},{label:'本科',value:'本科'},{label:'其他',value:'其他'}];
+const defaultFilters={status:'',communicated:'',education:'',brandId:'',location:''};
+const display=v=>v==null||v===''?'未提供':String(v);
+const joined=(...items)=>items.filter(Boolean).join(' · ');
+async function api(url,options){
+ const response=await fetch(url,options);
+ let value;
+ try{value=await response.json()}catch{throw Error('服务响应异常');}
+ if(!response.ok)throw Error(({DECISION_REASON_REQUIRED:'请填写判断理由',DETAIL_ALREADY_AVAILABLE:'岗位已有完整 JD',DECISION_CONFLICT:'岗位已有新版本，请重新打开'}[value.error])||value.error||'读取失败');
+ return value;
+}
+const groupedTags=values=>Array.isArray(values)&&values.length?
+ <Space size={[4,4]} wrap>{values.map((x,i)=><Tag key={String(x)+'-'+i} className="fact-tag">{String(x)}</Tag>)}</Space>:
+ <Text type="secondary">未提供</Text>;
+const formatCaptureTime=value=>{
+ if(!value)return null;
+ const date=new Date(value);
+ if(Number.isNaN(date.getTime()))return null;
+ return new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(date);
+};
+function ConditionTags({facts:f}){
+ const conditions=[
+  {name:'薪资',value:f.salary||'未提供',className:'salary-condition'},
+  {name:'地点',value:joined(f.city,f.district,f.business_district)||f.address||'未提供'},
+  {name:'经验',value:f.experience||'未提供'},
+  {name:'学历',value:f.education||'未提供'}
+ ];
+ return <div className="conditions-cell">
+  <Space size={[4,4]} wrap>{conditions.map(c=><Tag key={c.name} className={'fact-tag condition-tag '+(c.className||'')}>{c.value}</Tag>)}</Space>
+  {f.address&&<Tooltip title={'详细地址：'+f.address}><Text className="address-preview">⌖ {f.address}</Text></Tooltip>}
+ </div>;
+}
+function JdPreview({job:j}){
+ const s=j.ai_summary;
+ if(j.ai_summary_status!=='READY'||!s)return <span className="ai-jd-pending">{j.ai_summary_status==='NO_DETAIL'?'—':'待 AI 提炼'}</span>;
+ const groups=[['核心职责',s.responsibilities],['硬性要求',s.requirements],['加分项',s.bonus],['特别注意',s.notices]];
+ return <Popover trigger="hover" placement="bottomLeft" overlayClassName="ai-jd-popover" mouseEnterDelay={0.12}
+  title="AI 岗位提炼 · 来源：已采集 JD" content={<div className="ai-jd-popover-body">
+   {groups.filter(([,items])=>items?.length).map(([title,items])=><section className="ai-jd-group" key={title}>
+    <div className="ai-jd-group-title">{title}</div>
+    {items.map((item,i)=><div key={i} className="ai-jd-point"><span>•</span><span>{item}</span></div>)}
+   </section>)}
+   <div className="ai-jd-source">AI 提炼仅供筛选；点击岗位行查看原始完整 JD</div>
+  </div>}>
+  <div className="ai-jd-trigger" tabIndex={0} aria-label={'AI 岗位概述：'+s.headline}>
+   <span className="ai-jd-caption">AI 提炼</span>
+   <span className="ai-jd-headline">{s.headline}</span>
+   <span className="ai-jd-hint">悬浮查看结构化提炼</span>
+  </div>
+ </Popover>;
+}
+function SkillsAndBenefits({job:j}){
+ const f=j.facts||{},skills=f.skills||[],known=new Set([f.experience,f.education,...skills].map(x=>String(x||'').trim().toLowerCase()));
+ const extra=[...new Set((f.labels||[]).filter(x=>!known.has(String(x).trim().toLowerCase())))];
+ const welfare=[...new Set((f.welfare||[]).filter(x=>typeof x==='string'&&x.trim()))];
+ const shown=welfare.slice(0,5),remaining=welfare.slice(5);
+ return <div className="skills-benefits">
+  <div className="skills-cell">{groupedTags(skills)}</div>
+  {extra.length>0&&<div className="extra-job-tags"><Space size={[3,3]} wrap>{extra.map(x=><Tag className="fact-tag" key={x}>{x}</Tag>)}</Space></div>}
+  {welfare.length>0&&<div className="welfare-line"><Text className="micro-label">福利</Text><Space size={[3,3]} wrap>
+   {shown.map(x=><Tag className="benefit-tag" key={x}>{x}</Tag>)}
+   {remaining.length>0&&<Popover trigger="click" placement="bottomLeft" overlayClassName="welfare-more-popover" title="更多福利" content={
+    <div className="welfare-more-content" data-testid="more-welfare-content"><Space size={[4,5]} wrap>{remaining.map((x,i)=><Tag className="benefit-tag" key={x+'-'+i}>{x}</Tag>)}</Space></div>
+   }><Button type="text" size="small" className="welfare-more" title="点击查看更多福利" aria-label={'查看其余 '+remaining.length+' 项福利'} onClick={e=>e.stopPropagation()}>··· 更多</Button></Popover>}
+  </Space></div>}
+ </div>;
+}
+// Mapped against live BOSS DOM img.job-tag-icon alt labels captured on 2026-10-23.
+const nativeBadgeFromIcon=url=>{
+ if(typeof url!=='string')return null;
+ if(url.includes('/6zb0e7e8qm1655206107975.png'))return '派遣';
+ if(url.includes('/cy4fi6cada1655206055291.png'))return '猎头';
+ if(url.includes('/4or9x2qcfv1699943576247.png'))return '急聘';
+ return null;
+};
+function JobFlags({job:j}){
+ const f=j.facts||{},list=j.list||{};
+ const imgBadges=[...new Set((Array.isArray(list.beforeNameIcons)?list.beforeNameIcons:[]).map(nativeBadgeFromIcon).filter(Boolean))];
+ const isHunter=imgBadges.includes('猎头')||list.goldHunter===1;
+ const isDispatch=imgBadges.includes('派遣');
+ return <div className="job-flags">
+  {f.closed&&<Tag className="closed-signal" color="error" bordered={false}>已关闭</Tag>}
+  {isHunter&&<Tooltip title="原生猎头图标或 goldHunter=1"><Tag className="source-signal">猎头</Tag></Tooltip>}
+  {isDispatch&&<Tooltip title="BOSS 原生职位卡片图标明确标注派遣"><Tag className="dispatch-signal">派遣</Tag></Tooltip>}
+  {list.proxyJob===1&&!isDispatch&&!isHunter&&<Tooltip title={'原生 proxyJob=1，proxyType='+String(list.proxyType)+'；尚不能证明等同于派遣'}><Tag className="source-signal">{list.proxyType===4?'代理·类型4':'代理'}</Tag></Tooltip>}
+  {imgBadges.includes('急聘')&&<Tag className="urgent-signal">急聘</Tag>}
+  {Number.isInteger(list.anonymous)&&list.anonymous!==0&&<Tooltip title={'原生 anonymous='+list.anonymous+'，具体编码含义待核实'}><Tag className="source-signal">匿名码{list.anonymous}</Tag></Tooltip>}
+  {list.atsDirectPost===true&&<Tag className="source-signal">支持ATS直投</Tag>}
+  {typeof list.optimal==='number'&&list.optimal!==0&&<Tag className="source-signal">优选码{list.optimal}</Tag>}
+  {f.least_month_desc&&<Tag className="source-signal">{f.least_month_desc}</Tag>}
+  {f.days_per_week_desc&&<Tag className="source-signal">{f.days_per_week_desc}</Tag>}
+  {list.jobValidStatus!=null&&list.jobValidStatus!==1&&!f.closed&&<Tag className="source-signal">状态码{String(list.jobValidStatus)}</Tag>}
+ </div>;
+}
+function RecruiterInfo({job:j}){
+ const f=j.facts||{},capture=formatCaptureTime(j.detail_fetched_at);
+ const name=display(f.boss_name);
+ const recruiterRole=typeof f.boss_title==='string'?f.boss_title.trim():'';
+ return <div className="stack recruiter-cell">
+  <Text className="recruiter-name">{name}</Text>
+  {recruiterRole&&recruiterRole!=='招聘者'&&<Text type="secondary" className="recruiter-role">{recruiterRole}</Text>}
+  {f.boss_active_desc?<Tooltip title={capture?'该活跃描述来自 '+capture+'（北京时间）采集的 BOSS 详情，非当前实时状态':'历史详情活跃描述，非当前实时状态'}>
+   <Tag className="recruiter-active" color="processing">采集时-{f.boss_active_desc}</Tag>
+  </Tooltip>:<Tag className="recruiter-active" color="processing">{f.boss_online===true?'采集时-在线':f.boss_online===false?'采集时-未在线':'活跃信息未知'}</Tag>}
+  {capture?<Tooltip title={'BOSS 详情回执 capturedAt（北京时间）：'+capture}>
+   <Text className="capture-time">{capture}</Text>
+  </Tooltip>:<Text className="capture-time">采集时间未记录</Text>}
+ </div>;
+}
+const trendSeries=[
+ {key:'received',name:'收录岗位',color:'#3678d4'},
+ {key:'pass',name:'PASS',color:'#e1a046'},
+ {key:'communicated',name:'已沟通',color:'#329e81'}
+];
+function TrendChart({weeks,mode}){
+ if(!weeks?.length)return <div className="dashboard-empty">暂无趋势数据</div>;
+ const suffix=mode==='weekly'?'New':'Total',W=365,H=205,left=30,top=13,height=153,width=325;
+ const max=Math.max(1,...weeks.flatMap(w=>trendSeries.map(s=>Number(w[s.key+suffix]||0))));
+ const xpos=i=>left+width*(i/Math.max(1,weeks.length-1));
+ const ypos=value=>top+height-height*Number(value||0)/max;
+ return <div className="trend-graph">
+  <svg className="trend-svg" role="img" aria-label={mode==='weekly'?'每周新增岗位趋势':'累计岗位趋势'} viewBox={'0 0 '+W+' '+H} preserveAspectRatio="xMidYMid meet">
+   {[0,1,2,3,4].map(i=><g key={i}>
+    <line x1={left} x2={W-9} y1={top+height*i/4} y2={top+height*i/4} stroke="#e9eef5" strokeWidth="1"/>
+    <text x={left-7} y={top+height*i/4+4} fontSize="11" textAnchor="end" fill="#8493a8">{Math.round(max*(4-i)/4)}</text>
+   </g>)}
+   {trendSeries.map(s=><g key={s.key}>
+    <polyline fill="none" stroke={s.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"
+     points={weeks.map((w,i)=>xpos(i)+','+ypos(w[s.key+suffix])).join(' ')}/>
+    {weeks.map((w,i)=><circle key={i} cx={xpos(i)} cy={ypos(w[s.key+suffix])} r="3.4" fill={s.color}>
+      <title>{w.date+' '+s.name+'：'+(w[s.key+suffix]||0)+' 条'}</title>
+    </circle>)}
+   </g>)}
+   {weeks.map((w,i)=>i%3===0||i===weeks.length-1?<text key={i} x={xpos(i)} y={H-14} fontSize="11" textAnchor="middle" fill="#71829a">{w.label}</text>:null)}
+  </svg>
+  <div className="chart-legend">{trendSeries.map(s=><span key={s.key}><i style={{background:s.color}}/>{s.name}</span>)}</div>
+ </div>;
+}
+function DonutCard({title,subtitle,entries,footnote}){
+ const colors=['#397dd4','#e5a04c','#329e81','#acbbcd'];
+ const total=entries.reduce((n,v)=>n+(v.value||0),0);
+ let used=0;
+ const segments=entries.filter(v=>v.value>0).map(v=>{
+  const a=used;used+=(v.value/total)*100;
+  return colors[entries.indexOf(v)%colors.length]+' '+a+'% '+used+'%';
+ });
+ const gradient=segments.length?'conic-gradient('+segments.join(',')+')':'#e4eaf3';
+ return <div className="dashboard-panel donut-card">
+  <div className="dashboard-panel-title">{title}</div>
+  <div className="dashboard-subtitle">{subtitle}</div>
+  <div className="donut" style={{background:gradient}} role="img" aria-label={title+' '+entries.map(v=>v.label+v.value+'条').join('，')}>
+   <div className="donut-hole"><strong>{total}</strong><span>岗位</span></div>
+  </div>
+  <div className="donut-legend">{entries.filter(e=>e.value>0).map((v,i)=><div className="donut-legend-item" key={v.label}>
+   <span className="donut-label"><i style={{background:colors[entries.indexOf(v)%colors.length]}}/>{v.label}</span>
+   <span>{v.value} <small>({total?Math.round(100*v.value/total):0}%)</small></span>
+  </div>)}</div>
+  <div className="dashboard-note">{footnote}</div>
+ </div>;
+}
+function JobDashboard({data}){
+ if(!data)return <div className="dashboard-loading"><Spin size="small"/> 正在载入真实岗位趋势…</div>;
+ const degree=data.education||{},decisions=data.judgment||{};
+ return <section className="dashboard-row" aria-label="岗位分析大盘">
+  <div className="dashboard-panel trend-panel">
+   <div className="dashboard-panel-title">累计总量</div>
+   <div className="dashboard-subtitle">最近三个月 · 按周累计</div>
+   <TrendChart weeks={data.weeks} mode="cumulative"/>
+   <div className="dashboard-note">收录、PASS、已沟通 · 截至每周末的累计数量</div>
+  </div>
+  <div className="dashboard-panel trend-panel">
+   <div className="dashboard-panel-title">每周新增</div>
+   <div className="dashboard-subtitle">最近三个月 · 每周变化</div>
+   <TrendChart weeks={data.weeks} mode="weekly"/>
+   <div className="dashboard-note">收录、PASS、已沟通 · 当周新增数量</div>
+  </div>
+  <DonutCard title="可投岗位学历" subtitle="当前值得投岗位的学历要求" entries={[
+   {label:'不限',value:degree['不限']||0},{label:'大专',value:degree['大专']||0},
+   {label:'本科',value:degree['本科']||0},{label:'其他/未提供',value:degree['其他/未提供']||0}
+  ]} footnote="以值得投岗位为范围；学历按岗位要求互斥分类。"/>
+  <DonutCard title="岗位判断占比" subtitle="当前全部收录岗位" entries={[
+   {label:'值得投',value:decisions.WORTH||0},{label:'待评估',value:decisions.PENDING||0},
+   {label:'PASS',value:decisions.PASS||0}
+  ]} footnote="缺详情归入待评估。"/>
+ </section>;
+}
+function DetailPane({job,detail}){
+ const f=job.facts||{},signalNames={LIST_CONTACT:'平台列表存在联系标记',DETAIL_BE_FRIEND:'平台记录已建立联系关系',DETAIL_ALREADY_SEND:'平台记录已发送简历',DETAIL_ALREADY_APPLY:'平台记录已申请'};
+ const histories=(job.history_signals||[]).map(s=>signalNames[s]||'其他历史关系证据');
+ const visible=new Set([...(f.labels||[]),...(f.skills||[]),...(f.welfare||[]),f.brand_industry,f.brand_scale,f.brand_stage].map(x=>String(x||'').trim().toLowerCase()));
+ const companyLabels=[...new Set((f.company_labels||[]).filter(x=>typeof x==='string'&&!visible.has(x.trim().toLowerCase())))];
+ const customer=f.customer_company&&f.customer_company!==f.brand_name?f.customer_company:null;
+ const count=detail?.data?.jobInfo?.recruitmentCountDesc;
+ const extra=Boolean(customer||companyLabels.length||(typeof count==='string'&&count.trim()));
+ const activity=Boolean(histories.length||job.greet_started_at||job.greet_reason);
+ const side=extra||activity;
+ return <div className="inline-detail detail-unique" data-testid="job-detail">
+  <Row gutter={[12,12]} align="top">
+   <Col xs={24} lg={side?16:24}>
+    <Card title="原始完整 JD" size="small" className="detail-card">
+     {f.jd_text?<div className="jd-text">{f.jd_text}</div>:<Alert type="warning" showIcon message="尚未采集到原始 JD"/>}
+    </Card>
+   </Col>
+   {side&&<Col xs={24} lg={8}>
+    {extra&&<Card title="列表未展示的补充信息" size="small" className="detail-card">
+     {customer&&<div className="detail-extra-field"><Text type="secondary">客户公司</Text><Text>{customer}</Text></div>}
+     {typeof count==='string'&&count.trim()&&<div className="detail-extra-field"><Text type="secondary">招聘人数</Text><Text>{count}</Text></div>}
+     {companyLabels.length>0&&<div className="detail-extra-field"><Text type="secondary">公司特点</Text>{groupedTags(companyLabels)}</div>}
+    </Card>}
+    {activity&&<Card title="历史联系证据" size="small" className={'detail-card'+(extra?' section-gap':'')}>
+     <Space direction="vertical" size={5} style={{width:'100%'}}>
+      {histories.map((v,i)=><Text key={i} type="secondary">• {v}</Text>)}
+      {job.greet_started_at&&<Text type="secondary">发起联系：{formatCaptureTime(job.greet_started_at)||job.greet_started_at}</Text>}
+      {job.greet_reason&&<Text type="secondary">回执说明：{job.greet_reason}</Text>}
+     </Space>
+    </Card>}
+   </Col>}
+  </Row>
+ </div>;
+}
+function Worktable(){
+ const [form]=Form.useForm();
+ const [filters,setFilters]=useState(defaultFilters);
+ const [page,setPage]=useState(1),[pageSize,setPageSize]=useState(20);
+ const [items,setItems]=useState([]),[total,setTotal]=useState(0);
+ const [locations,setLocations]=useState([]),[companies,setCompanies]=useState([]);
+ const [dashboard,setDashboard]=useState(null);
+ const [loading,setLoading]=useState(true),[error,setError]=useState('');
+ const [expandedId,setExpandedId]=useState(null),[detail,setDetail]=useState(null),[detailLoading,setDetailLoading]=useState(false);
+ const [demo,setDemo]=useState(false);
+ useEffect(()=>{
+  const controller=new AbortController();const params=new URLSearchParams();
+  Object.entries(filters).forEach(([k,v])=>{if(v!==''&&v!=null)params.set(k,String(v));});
+  params.set('limit',String(pageSize));params.set('offset',String((page-1)*pageSize));params.set('sort','updated');
+  setLoading(true);setError('');
+  api('/api/jobs?'+params,{signal:controller.signal}).then(data=>{
+   if(controller.signal.aborted)return;
+   setItems(data.items);setTotal(data.total);setLocations(data.locations);setCompanies(data.companies||[]);setDemo(!!data.demo);
+   if(data.total>0&&(page-1)*pageSize>=data.total){setPage(Math.max(1,Math.ceil(data.total/pageSize)));return;}
+   setExpandedId(old=>old&&data.items.some(j=>j.job_id===old)?old:null);
+  }).catch(e=>{if(!controller.signal.aborted)setError(e.message);}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});
+  return()=>controller.abort();
+ },[filters,page,pageSize]);
+ useEffect(()=>{
+  if(!expandedId){setDetail(null);return;}
+  const controller=new AbortController();setDetail(null);setDetailLoading(true);
+  api('/api/jobs/'+encodeURIComponent(expandedId),{signal:controller.signal}).then(data=>{if(!controller.signal.aborted)setDetail(data);}).catch(e=>{if(!controller.signal.aborted)setError(e.message);}).finally(()=>{if(!controller.signal.aborted)setDetailLoading(false);});
+  return()=>controller.abort();
+ },[expandedId]);
+ useEffect(()=>{let live=true;api('/api/dashboard').then(data=>{if(live)setDashboard(data);}).catch(e=>{if(live)setError(e.message);});return()=>{live=false;};},[]);
+ const applyFilters=values=>{setFilters({...defaultFilters,...values});setPage(1);setExpandedId(null);};
+ const clear=()=>{form.setFieldsValue(defaultFilters);applyFilters(defaultFilters);};
+ const columns=[
+  {title:'职位 / 公司',key:'name',width:315,render:(_,j)=><div className="job-primary">
+   <Text strong className="job-name">{display(j.facts.job_name)}</Text>
+   {j.facts.company_introduction?
+    <Tooltip title={<div className="company-popover">{j.facts.company_introduction}</div>}><Text type="secondary" className="job-company">{display(j.facts.brand_name)}</Text></Tooltip>:
+    <Text type="secondary" className="job-company">{display(j.facts.brand_name)}</Text>}
+   <Text type="secondary" className="table-subtle">{joined(j.facts.brand_industry,j.facts.brand_scale,j.facts.brand_stage)||'公司信息未提供'}</Text>
+   <JobFlags job={j}/>
+  </div>},
+  {title:'岗位条件',key:'conditions',className:'conditions-column',width:150,render:(_,j)=><ConditionTags facts={j.facts}/>},
+   {title:'技能 / 福利',key:'skills',width:390,render:(_,j)=><SkillsAndBenefits job={j}/>},
+  {title:'职责 / 要求',key:'jd_preview',width:350,render:(_,j)=><JdPreview job={j}/>},
+  {title:'招聘者/采集时间',key:'boss',width:165,render:(_,j)=><RecruiterInfo job={j}/>},
+  {title:'判断 / 原因',key:'decision',width:175,render:(_,j)=><div className="stack">
+   <Tag bordered={false} color={colors[j.screening_status]}>{labels[j.screening_status]||'未知'}</Tag>
+   <Tooltip title={j.screening_reason||'尚未完成判断'}><Text className="two-lines" type="secondary">{j.screening_reason||'尚未完成判断'}</Text></Tooltip>
+  </div>},
+  {title:'沟通 / 时间',key:'communication',width:172,render:(_,j)=><div className="stack communication-dates">
+   <Tag color={j.communicated?'success':'default'} bordered={false}>{j.communicated?'已沟通':'未沟通'}</Tag>
+   {j.communicated&&j.communicated_at&&<Tooltip title={'确认 Greet 成功时间（北京时间）：'+formatCaptureTime(j.communicated_at)}><Text className="communication-time">沟通 {formatCaptureTime(j.communicated_at)}</Text></Tooltip>}
+   <Tooltip title={'本地记录最后修改时间（北京时间）；首次落库：'+(formatCaptureTime(j.first_seen_at)||'未记录')}><Text className="record-updated-time">更新 {formatCaptureTime(j.updated_at)||'未记录'}</Text></Tooltip>
+   {!j.communicated&&j.block_reason&&<Tooltip title={j.block_reason}><Text className="historical-signal" type="warning">有历史线索</Text></Tooltip>}
+  </div>},
+ ];
+ return <main className="worktable">
+  <header className="worktable-header"><Title level={3} style={{margin:0}}>岗位工作台</Title></header>
+  {demo&&<Alert type="warning" showIcon className="top-alert" message="演示数据：筛选及沟通记录均为模拟，不代表真实投递。"/>}
+  <JobDashboard data={dashboard}/>
+  <Card className="filter-card" size="small">
+   <Form form={form} name="job-filters" initialValues={defaultFilters} onValuesChange={(_,values)=>applyFilters(values)} className="filter-form" layout="vertical" size="small">
+    <Form.Item name="location" label="地点" className="filter-location">
+     <Select options={[{label:'全部地点',value:''},...locations.map(x=>({label:x,value:x}))]}/>
+    </Form.Item>
+    <Form.Item name="brandId" label="公司" className="filter-company">
+     <Select showSearch optionFilterProp="label" options={[{label:'全部公司',value:''},...companies.map(c=>({label:c.name||'匿名',value:c.id}))]}/>
+    </Form.Item>
+    <Form.Item name="education" label="学历" className="filter-radio"><Radio.Group options={educationOptions} optionType="button" buttonStyle="solid"/></Form.Item>
+    <Form.Item name="communicated" label="沟通" className="filter-radio"><Radio.Group options={commOptions} optionType="button" buttonStyle="solid"/></Form.Item>
+    <Form.Item name="status" label="投递判断" className="filter-radio"><Radio.Group options={statusOptions} optionType="button" buttonStyle="solid"/></Form.Item>
+    <Form.Item className="filter-buttons"><Button onClick={clear} id="reset-filters">重置</Button></Form.Item>
+   </Form>
+  </Card>
+  {error&&<Alert type="error" showIcon className="top-alert" message={error} role="alert"/>}
+  <Table className="job-table" tableLayout="fixed" size="small" bordered={false} rowKey="job_id" columns={columns} dataSource={items} loading={loading} pagination={false} scroll={{x:1717}}
+   locale={{emptyText:<Empty description="没有符合条件的岗位，请调整筛选条件。"/>}}
+   rowClassName={j=>'job-row'+(expandedId===j.job_id?' row-selected':'')}
+   onRow={record=>({onClick:e=>{if(e.target.closest('button,input,textarea,select,a'))return;setExpandedId(id=>id===record.job_id?null:record.job_id);}})}
+   expandable={{
+    expandedRowKeys:expandedId?[expandedId]:[],
+    onExpand:(expanded,record)=>setExpandedId(expanded?record.job_id:null),
+    showExpandColumn:false,
+    expandedRowRender:record=><div className="detail-wrap">{detailLoading||detail?.job?.job_id!==record.job_id?<div className="detail-spinner"><Spin/> 正在加载岗位详情…</div>:<DetailPane job={detail.job} detail={detail.detail}/>}</div>
+   }}/>
+  <div className="table-footer">
+   <Text type="secondary">当前 {total?((page-1)*pageSize+1):0}–{Math.min(page*pageSize,total)} / {total}</Text>
+   <Pagination current={page} pageSize={pageSize} total={total} showSizeChanger pageSizeOptions={['20','50','100']} showQuickJumper size="small" onChange={(p,size)=>{setPage(p);setPageSize(size);setExpandedId(null);}}/>
+  </div>
+ </main>;
+}
+const nonce=document.querySelector('meta[name="antd-style-nonce"]')?.getAttribute('content');
+createRoot(document.getElementById('root')).render(
+ <ConfigProvider locale={zhCN} componentSize="small" csp={nonce?{nonce}:undefined}
+  theme={{token:{colorPrimary:'#2167b5',borderRadius:7,fontSize:13,colorBgLayout:'#f5f7fb',colorText:'#23354b'},components:{Table:{cellPaddingBlockSM:7,cellPaddingInlineSM:9,headerBg:'#f2f5f9'},Card:{bodyPaddingSM:12}}}}>
+  <Worktable/>
+ </ConfigProvider>
+);

@@ -1,0 +1,6 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>DOM Detail Sequence</title>
+<style>body{font:14px system-ui;margin:24px;max-width:780px;line-height:1.6}pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f4;padding:12px;border-radius:6px}</style></head>
+<body><h2>DOM Detail · 扩展自动采集</h2><p>auto=1：扩展自动 Refresh → List 下载 → 首条自然 Detail → 按 ID 每秒确认 DOM（最多约 2 秒）→ 逐条点击并等待原始 Detail JSON 下载完成 → 整批完成后自动 Scroll 下一批。pages 默认 2，可设为 1～21，expect 为求职期望索引。任一下载失败立即停止，不主动请求 Detail API；下载完后再独立入库。保留 latest=1 / batch=... 单批模式。</p>
+<p>终止：指定页数 × 15 条下载确认即自动停止；例如 pages=2 是两批共 30 条。可点击“停止采集”在当前动作或下载结束后停止，不继续点击或滚动。</p>
+<button id="stop" type="button">停止采集（当前步骤结束后）</button>
+<div id="state">准备…</div><pre id="detail"></pre><script src="dom.js"></script></body></html>

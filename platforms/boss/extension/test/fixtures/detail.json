@@ -1,0 +1,20 @@
+{
+  "contract": "boss-natural-detail.v1",
+  "jobId": "syntheticJob2026AAA",
+  "apiCode": 0,
+  "capturedAt": "2026-10-23T00:00:00.000Z",
+  "rawResponse": {
+    "code": 0,
+    "message": "synthetic",
+    "zpData": {
+      "jobInfo": {
+        "encryptId": "syntheticJob2026AAA",
+        "jobName": "虚构全栈工程师",
+        "postDescription": "虚构 JD：开发浏览器与后端功能。仅供测试。"
+      },
+      "brandComInfo": {
+        "brandName": "虚构公司"
+      }
+    }
+  }
+}
