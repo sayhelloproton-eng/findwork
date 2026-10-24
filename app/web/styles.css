@@ -188,6 +188,8 @@ body{margin:0}#root{min-height:100vh}
 .decision-note-incomplete-record{color:#b76b3c}
 
 /* Calendar-day collection filter, separate from sorting. */
-.filter-form .filter-date{width:130px}
-.filter-date .ant-picker{width:100%}
-.filter-form .filter-date-mode{flex-shrink:0}
+.filter-form .filter-date-mode{width:136px;flex-shrink:0}
+.filter-date-mode .ant-select{width:100%}
+.filter-form .filter-custom-range{width:242px;align-self:flex-end}
+.filter-custom-range .ant-picker{width:100%}
+@media(max-width:610px){.filter-form .filter-date-mode,.filter-form .filter-custom-range{width:100%}}

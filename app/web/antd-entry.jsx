@@ -14,8 +14,8 @@ const statusOptions=[{label:'全部',value:''},{label:'值得投',value:'WORTH'}
 const commOptions=[{label:'全部',value:''},{label:'已沟通',value:'true'},{label:'未沟通',value:'false'}];
 const educationOptions=[{label:'全部',value:''},{label:'不限',value:'不限'},{label:'大专',value:'大专'},{label:'本科',value:'本科'},{label:'其他',value:'其他'}];
 const sortOptions=[{label:'采集时间',value:'collected'},{label:'更新时间',value:'updated'}];
-const dateModes=[{label:'所选日期',value:'day'},{label:'最近一天',value:'last1'},{label:'最近三天',value:'last3'}];
-const defaultFilters={status:'',communicated:'',education:'',brandId:'',location:'',sort:'collected',dateMode:'day',date:dayjs(todayInShanghai())};
+const dateModes=[{label:'最近一天',value:'last1'},{label:'最近三天',value:'last3'},{label:'最近七天',value:'last7'},{label:'自定义日期范围',value:'custom'}];
+const defaultFilters={status:'',communicated:'',education:'',brandId:'',location:'',sort:'collected',dateMode:'last1',customRange:[dayjs(todayInShanghai()),dayjs(todayInShanghai())]};
 const display=v=>v==null||v===''?'未提供':String(v);
 const joined=(...items)=>items.filter(Boolean).join(' · ');
 async function api(url,options){
@@ -239,8 +239,8 @@ function Worktable(){
  const [demo,setDemo]=useState(false);
  useEffect(()=>{
   const controller=new AbortController();const params=new URLSearchParams();
-  Object.entries(filters).forEach(([k,v])=>{if(k!=='dateMode'&&k!=='date'&&v!==''&&v!=null)params.set(k,String(v));});
-  const range=collectionDateRange(filters.dateMode,filters.date?.format('YYYY-MM-DD')||todayInShanghai());
+  Object.entries(filters).forEach(([k,v])=>{if(k!=='dateMode'&&k!=='customRange'&&v!==''&&v!=null)params.set(k,String(v));});
+  const range=collectionDateRange(filters.dateMode,filters.customRange?.map(d=>d?.format('YYYY-MM-DD')));
   params.set('collectedFrom',range.collectedFrom);params.set('collectedTo',range.collectedTo);
   params.set('limit',String(pageSize));params.set('offset',String((page-1)*pageSize));
   setLoading(true);setError('');
@@ -259,8 +259,7 @@ function Worktable(){
   return()=>controller.abort();
  },[expandedId]);
  useEffect(()=>{let live=true;api('/api/dashboard').then(data=>{if(live)setDashboard(data);}).catch(e=>{if(live)setError(e.message);});return()=>{live=false;};},[]);
- const applyFilters=(values,changes={})=>{
-  if('date' in changes&&changes.date){values={...values,dateMode:'day'};form.setFieldValue('dateMode','day');}
+ const applyFilters=values=>{
   setFilters({...defaultFilters,...values});setPage(1);setExpandedId(null);
  };
  const clear=()=>{form.setFieldsValue(defaultFilters);applyFilters(defaultFilters);};
@@ -296,7 +295,7 @@ function Worktable(){
   {demo&&<Alert type="warning" showIcon className="top-alert" message="演示数据：筛选及沟通记录均为模拟，不代表真实投递。"/>}
   <JobDashboard data={dashboard}/>
   <Card className="filter-card" size="small">
-   <Form form={form} name="job-filters" initialValues={defaultFilters} onValuesChange={(changes,values)=>applyFilters(values,changes)} className="filter-form" layout="vertical" size="small">
+   <Form form={form} name="job-filters" initialValues={defaultFilters} onValuesChange={(_,values)=>applyFilters(values)} className="filter-form" layout="vertical" size="small">
     <Form.Item name="location" label="地点" className="filter-location">
      <Select options={[{label:'全部地点',value:''},...locations.map(x=>({label:x,value:x}))]}/>
     </Form.Item>
@@ -306,12 +305,13 @@ function Worktable(){
     <Form.Item name="education" label="学历" className="filter-radio"><Radio.Group options={educationOptions} optionType="button" buttonStyle="solid"/></Form.Item>
     <Form.Item name="communicated" label="沟通" className="filter-radio"><Radio.Group options={commOptions} optionType="button" buttonStyle="solid"/></Form.Item>
     <Form.Item name="status" label="投递判断" className="filter-radio"><Radio.Group options={statusOptions} optionType="button" buttonStyle="solid"/></Form.Item>
-    <Form.Item name="date" label="采集日期" className="filter-date">
-     <DatePicker format="YYYY-MM-DD" allowClear={false} inputReadOnly placeholder="选择日期"/>
+    <Form.Item name="dateMode" label="采集日期" className="filter-date-mode">
+     <Select options={dateModes} aria-label="采集日期"/>
     </Form.Item>
-    <Form.Item name="dateMode" label="日期范围" className="filter-radio filter-date-mode">
-     <Radio.Group options={dateModes} optionType="button" buttonStyle="solid"/>
-    </Form.Item>
+    {filters.dateMode==='custom'&&<Form.Item name="customRange" className="filter-custom-range">
+     <DatePicker.RangePicker format="YYYY-MM-DD" allowClear={false} inputReadOnly
+      placeholder={['开始日期','结束日期']} aria-label="自定义采集日期范围"/>
+    </Form.Item>}
     <Form.Item name="sort" label="排序" className="filter-radio"><Radio.Group options={sortOptions} optionType="button" buttonStyle="solid"/></Form.Item>
     <Form.Item className="filter-buttons"><Button onClick={clear} id="reset-filters">重置</Button></Form.Item>
    </Form>
