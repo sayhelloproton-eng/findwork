@@ -21,15 +21,22 @@
 
 | 状态 | 合同 |
 |---|---|
-| PENDING | 未完成评估、缺策略/关键事实或冲突未决 |
-| NEED_DETAIL | 缺少足够 Detail，优先完成采集；属于内部待评估，不是“拒投” |
-| WORTH | 未触发已确认硬排除，工作可胜任或合理迁移，值得争取；**必须写具体原因** |
-| PASS | 明确命中已确认的排除规则或不能满足的关键硬要求；**必须写具体原因和证据** |
+| PENDING（待评估） | 尚未评估、缺详情或策略/关键事实，或 AI 已评估但仍有疑问、其他异常；不强行判断 PASS/WORTH |
+| WORTH（值得投） | 有岗位事实支持胜任或合理迁移，符合个人画像和已确认偏好，未命中硬排除且不存在影响结论的疑问；必须记录匹配依据 |
+| PASS | 有充分证据证明命中硬排除、无法满足关键要求或确定不符合已确认的求职目标；必须记录具体原因，默认不交给用户逐条复查 |
 
-对 WORTH/PASS 使用 `npm run jobs -- get JOB_ID` 获取 `revision` 和 `decision_basis.hash`，按 `references/database.md` 的 `decide-ai` 输入 `jobId,status,reason,strategyVersion,expectedRevision,expectedSourceHash`，返回后再次 `get` 验证写入。未完成对照不能猜测理由。来源变化/版本冲突时先重新读取，不越过乐观锁。不要直接 SQL 改判断列。
+**内部 NEED_DETAIL** 仍归于用户看到的 PENDING，优先补采详情，不另增判断状态。详情已经齐全但 AI 对技术门槛、要求真实性或重要偏好仍存在疑问，也必须保持 PENDING。**AI 主动写回的 PENDING 必须附理由**，使用 `reason` 保存已确认依据、疑点、倾向建议和需要用户确认的事项；不同于未启动评估且无理由的默认 PENDING，不允许因此直接 PASS。其他异常也按同样规则处理。
+
+对 WORTH/PASS/PENDING（已评估）使用 `npm run jobs -- get JOB_ID` 获取 `revision` 和 `decision_basis.hash`，按 `references/database.md` 的 `decide-ai` 输入 `jobId,status,reason,strategyVersion,expectedRevision,expectedSourceHash`，返回后再次 `get` 验证写入。未完成对照不能猜测理由。来源变化/版本冲突时先重新读取，不越过乐观锁。不要直接 SQL 改判断列。
 
 ## 决策后动作
 
 WORTH 只是“可联系候选”，不代表用户已授权发送。按能力匹配、活跃证据、行业正向偏好与其他真实条件排序，交给用户确认具体岗位，然后 `claim → 平台 Greet → import-greet → get`，只有真实回执 SUCCESS 才记已沟通。已沟通、失败、IN_FLIGHT/UNKNOWN 均不得盲目重复发送。
 
 Greet 不等于投递简历；投递后聊天、反馈及面试跟进不由本平台接管。
+
+
+## 已确认排除类别与大厂外包例外
+
+管理岗要看实际是否以人员、绩效、团队管理为主；应届岗要有明确校园招聘要求，普通协调不等于管理职责。明确排除的大厂直聘和已确认的一线大厂外包/派遣应区分招聘主体与客户品牌：可投的外包例外须实际验证用工性质；只有 proxyType 或客户品牌而关系未知时 PENDING。高薪范围本身不能单独 PASS；强制条件确有证据不满足才 PASS。私人企业名单和具体偏好以私有三策略为准。
+用户逐岗位授权后先 claim，临发送时再调用 check-greet 检查同一 jobId/actionId 最新 WORTH、未过期、未被阻断；PASS/PENDING 禁止新的沟通。先沟通成功后 PASS 的历史回执不得抹掉。

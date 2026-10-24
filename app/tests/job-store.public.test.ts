@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {DatabaseSync} from 'node:sqlite';
-import {openJobsDatabase,importList,decideJob,importDetail,importGreet,claimGreet,queryJobs,getJobDetail,getJob,sanitizeJobPayload,restoreRawSources,restoreRawReceipts,readJobFile,importAiSummaries,getJobsDashboard,decideAiJob,importApplication,getJobEvents} from '../db/ingestion/job-store.ts';
+import {openJobsDatabase,importList,decideJob,importDetail,importGreet,claimGreet,queryJobs,getJobDetail,getJob,sanitizeJobPayload,restoreRawSources,restoreRawReceipts,readJobFile,importAiSummaries,getJobsDashboard,decideAiJob,importApplication,getJobEvents,checkGreetBeforeSend} from '../db/ingestion/job-store.ts';
 const list=(...ids:string[])=>({code:0,zpData:{jobList:ids.map(jobId=>({encryptJobId:jobId,jobName:'示例工程师',brandName:'示例公司',cityName:'上海',areaDistrict:'徐汇区',bossOnline:false,contact:false,skills:['TypeScript']}))}});
 const detail=(jobId='a',extra:any={})=>({jobId,capturedAt:'2026-01-02T00:00:00Z',rawResponse:{code:0,zpData:{jobInfo:{encryptId:jobId,jobName:'示例工程师',postDescription:'Synthetic JD for Agent and MCP',invalidStatus:false,jobStatusDesc:'招聘中'},relationInfo:{beFriend:false},...extra}}});
 const greet=(jobId='a',extra:any={})=>({contract:'boss-greet-result.v1',jobId,endpoint:'/wapi/zpgeek/friend/add.json',method:'POST',startedAt:'2026-01-01T00:00:00Z',finishedAt:'2026-01-01T00:00:01Z',result:'SUCCESS',httpStatus:200,response:{code:0},...extra});
@@ -43,6 +43,61 @@ test('three-month chart is driven by stored job life-cycle facts',t=>{
  assert.equal(chart.judgment.PENDING,2);
  assert.equal(chart.education.本科,0);
  assert.equal(chart.weeks.at(-1).receivedTotal,2);
+});
+test('daily series and weekly cumulative derive from lifecycle timestamps',t=>{
+ const db=setup(t,['a','b']),chart=getJobsDashboard(db);
+ assert.equal(chart.weeks.length,13);assert.equal(chart.days.length,14);
+ assert.equal(chart.weeks.at(-1).receivedTotal,2);
+ assert.equal(chart.weeks.at(-1).communicatedTotal,0);
+ assert.equal(chart.days.reduce((sum,d)=>sum+d.received,0),2);
+ assert.ok(chart.days.every(d=>Number.isInteger(d.communicated)));
+});
+test('collection default sort differs from mutable updated timestamp',t=>{
+ const db=setup(t,['a','b']),ordered=queryJobs(db,{sort:'collected'}).items.map(j=>j.job_id);
+ assert.deepEqual(queryJobs(db).items.map(j=>j.job_id),ordered);
+ const target=ordered.at(-1);
+ db.prepare("UPDATE jobs SET updated_at='2099-01-01T00:00:00.000Z' WHERE job_id=?").run(target);
+ assert.equal(queryJobs(db,{sort:'updated'}).items[0].job_id,target);
+ assert.deepEqual(queryJobs(db,{sort:'collected'}).items.map(j=>j.job_id),ordered);
+});
+test('PASS invalidates even the same preexisting claim and blocks pre-send',t=>{
+ const db=setup(t);
+ worth(db);
+ const claimed=claimGreet(db,{jobId:'a',actionId:'send-a'});
+ assert.equal(claimed.communication_state,'IN_FLIGHT');
+ assert.equal(checkGreetBeforeSend(db,{jobId:'a',actionId:'send-a'}).allowed,true);
+ decideJob(db,{jobId:'a',status:'PASS',reason:'人工确认不投'});
+ assert.throws(()=>claimGreet(db,{jobId:'a',actionId:'send-a'}),/GREET_BLOCKED/);
+ assert.throws(()=>checkGreetBeforeSend(db,{jobId:'a',actionId:'send-a'}),/GREET_BLOCKED/);
+});
+test('education chart always covers all collected jobs instead of only WORTH',t=>{
+ const db=setup(t,[]);
+ const payload:any=list('worth-u','pending-u','college','unrestricted','master','missing');
+ const degrees=['本科','本科','大专','学历不限','硕士',undefined];
+ payload.zpData.jobList.forEach((j:any,i:number)=>{if(degrees[i]!=null)j.jobDegree=degrees[i];});
+ importList(db,payload);
+ worth(db,'worth-u');
+ decideJob(db,{jobId:'college',status:'PASS',reason:'合成排除'});
+ const chart=getJobsDashboard(db);
+ assert.equal(chart.total,6);
+ assert.deepEqual(chart.education,{'不限':1,'大专':1,'本科':2,'其他/未提供':2});
+ assert.deepEqual(chart.judgment,{WORTH:1,PENDING:4,PASS:1});
+ assert.equal(Object.values(chart.education).reduce((sum:any,n:any)=>sum+n,0),chart.total);
+});
+test('AI uncertain evaluation remains PENDING with reason, while unreviewed job remains PENDING',t=>{
+ const db=setup(t,['uncertain','unreviewed']);
+ importDetail(db,detail('uncertain'));
+ const previous=getJob(db,'uncertain');
+ const reason='技术经历基本匹配，但后端经验是否为硬条件暂不明确；建议人工查看硬要求后再决定。';
+ const args={jobId:'uncertain',status:'PENDING',strategyVersion:'synthetic-v1',expectedRevision:previous.revision,expectedSourceHash:previous.decision_basis.hash};
+ assert.throws(()=>decideAiJob(db,{...args,reason:' '}),/AI_PENDING_REASON_REQUIRED/);
+ const saved=decideAiJob(db,{...args,reason});
+ assert.equal(saved.screening_status,'PENDING');
+ assert.equal(getJob(db,'uncertain').screening_reason,reason);
+ assert.equal(getJob(db,'uncertain').decision_source,'SKILL');
+ assert.equal(getJob(db,'unreviewed').screening_reason,null);
+ assert.equal(queryJobs(db,{status:'PENDING'}).total,2);
+ assert.deepEqual(getJobsDashboard(db).judgment,{WORTH:0,PENDING:2,PASS:0});
 });
 test('v4 database migrates company ID from both original List and Detail JSON',()=>{
  const dir=mkdtempSync(join(tmpdir(),'jobs-v4-brand-')),path=join(dir,'jobs.sqlite');
@@ -287,7 +342,7 @@ test('v3 SQLite upgrades AI summary columns in place without changing past decis
   db.close();
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
-test('record updated_at begins at ingestion, tracks changes across assessment and communication, defaults to newest',t=>{
+test('record updated_at tracks all transitions, while default list sort stays by collection',t=>{
  const db=setup(t,['a','b']);
  const start=getJob(db,'a');
  assert.equal(start.updated_at,start.first_seen_at);
@@ -304,7 +359,7 @@ test('record updated_at begins at ingestion, tracks changes across assessment an
  db.prepare("UPDATE jobs SET updated_at='2020-01-01T00:00:00.000Z' WHERE job_id='a'").run();
  importGreet(db,greet());assert.notEqual(getJob(db,'a').updated_at,baseline,'successful greet changes the record');
  db.prepare("UPDATE jobs SET updated_at='2030-01-01T00:00:00.000Z' WHERE job_id='b'").run();
- assert.equal(queryJobs(db).items[0].job_id,'b','default is updated_at descending');
+ assert.equal(queryJobs(db).items[0].job_id,'a','default is last collection descending');
  assert.equal(queryJobs(db,{sort:'updated'}).items[0].job_id,'b');
 });
 test('AI summary changes record update time but identical reimport does not',t=>{
@@ -356,4 +411,15 @@ test('dense worktable SQL filters and paginates 500 jobs without losing the orig
  assert.equal(queryJobs(db,{limit:20,offset:480}).items.length,20);
  assert.equal(queryJobs(db,{sort:'recent',limit:50,offset:450}).items.length,50);
  assert.equal(queryJobs(db,{sort:'online'}).items[0].job_id,'worktable-1');
+});
+
+test('Shanghai local calendar collection date filter respects midnight and is independent of sorting',t=>{
+ const db=setup(t,['a','b','c']);
+ db.prepare("UPDATE jobs SET last_seen_at='2026-10-23T15:59:59.000Z' WHERE job_id='a'").run();
+ db.prepare("UPDATE jobs SET last_seen_at='2026-10-23T16:00:00.000Z' WHERE job_id='b'").run();
+ db.prepare("UPDATE jobs SET last_seen_at='2026-10-24T15:59:59.000Z' WHERE job_id='c'").run();
+ assert.deepEqual(queryJobs(db,{collectedFrom:'2026-10-24',collectedTo:'2026-10-24'}).items.map((j:any)=>j.job_id),['c','b']);
+ assert.equal(queryJobs(db,{collectedFrom:'2026-10-23',collectedTo:'2026-10-23',sort:'updated'}).total,1);
+ assert.equal(queryJobs(db,{collectedFrom:'2026-10-23',collectedTo:'2026-10-24',sort:'collected'}).total,3);
+ for(const input of [{collectedFrom:'2026-02-30'},{collectedFrom:'yesterday'},{collectedFrom:'2026-10-25',collectedTo:'2026-10-24'}])assert.throws(()=>queryJobs(db,input),/INVALID_COLLECTION_DATE/);
 });

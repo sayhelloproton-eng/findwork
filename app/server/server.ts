@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { openJobsDatabase,queryJobs,getJobsDashboard,getJobDetail,decideAiJob,importApplication,getJobEvents } from '../db/ingestion/job-store.ts';
 import { seedDatabase,seedLocalFixtures } from './seed.ts';
 const WEB=resolve(import.meta.dirname,'../web');
-const files:Record<string,[string,string]>={'/':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/styles.css':['styles.css','text/css'],'/job-view.js':['job-view.js','text/javascript'],'/antd-entry.js':['dist/antd-entry.js','text/javascript']};
+const files:Record<string,[string,string]>={'/':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/styles.css':['styles.css','text/css'],'/job-view.js':['job-view.js','text/javascript'],'/antd-entry.js':['dist/antd-entry.js','text/javascript'],'/echarts.js':['dist/echarts.js','text/javascript']};
 const json=(res:any,body:any,status=200)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));};
 export function createApp(options:any={}){
  const demo=!!(options.demo||options.localFixtures),db=openJobsDatabase(demo?':memory:':options.dbPath);

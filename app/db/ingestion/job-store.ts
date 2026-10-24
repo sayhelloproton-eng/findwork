@@ -99,6 +99,8 @@ export function decideAiJob(db:any,input:any){
  if(!object(input)||!Number.isInteger(input.expectedRevision)||typeof input.expectedSourceHash!=='string'||!input.expectedSourceHash)
    fail('AI_DECISION_PRECONDITION_REQUIRED');
  if(!['PENDING','WORTH','PASS'].includes(input.status))fail('INVALID_SCREENING_STATUS');
+ // A reviewed but uncertain AI decision must preserve its open questions and advice.
+ if(input.status==='PENDING'&&(!text(input.reason)||!input.reason.trim()))fail('AI_PENDING_REASON_REQUIRED');
  if(input.source!=null&&input.source!=='SKILL')fail('INVALID_DECISION_SOURCE');
  return decideJob(db,{...input,source:'SKILL'});
 }
@@ -326,6 +328,7 @@ export function claimGreet(db: any, input: any) {
   const jobId=id(input?.jobId), actionId=id(input?.actionId), stamp=now();
   return transaction(db,()=>{
     const job=getJob(db,jobId);
+    if(job.screening_status!=='WORTH'||job.decision_stale||job.facts.closed)fail('GREET_BLOCKED');
     if (job.action_id===actionId && job.communication_state==='IN_FLIGHT') return job;
     if (!job.eligible) fail('GREET_BLOCKED');
     if (db.prepare('SELECT 1 FROM jobs WHERE action_id=?').get(actionId)) fail('ACTION_ID_CONFLICT');
@@ -333,6 +336,13 @@ export function claimGreet(db: any, input: any) {
       .run(actionId,stamp,stamp,jobId);
     return getJob(db,jobId);
   });
+}
+// Claim does not authorize a send after a status change to PASS.
+export function checkGreetBeforeSend(db:any,input:any){
+ const job=getJob(db,id(input?.jobId)),actionId=id(input?.actionId);
+ if(job.screening_status!=='WORTH'||job.decision_stale||job.facts.closed||job.history_blocked||
+   job.action_id!==actionId||job.communication_state!=='IN_FLIGHT'||job.application_state!=='NONE')fail('GREET_BLOCKED');
+ return{jobId:job.job_id,actionId,allowed:true,revision:job.revision};
 }
 export function importGreet(db: any, payload: any, evidence: any = {}, expectedJobId?: string) {
   if (payload?.contract!=='boss-greet-result.v1' || payload.method!=='POST' || payload.endpoint!=='/wapi/zpgeek/friend/add.json' ||
@@ -391,13 +401,18 @@ export function importApplication(db:any,p:any,evidence:any={},expectedJobId?:st
 }
 export function queryJobs(db:any,input:any={}){
  if(!object(input))fail('INVALID_QUERY');
- const allowed=['status','communicated','q','location','brandId','education','candidates','limit','offset','hasDetail','online','sort'];
+ const allowed=['status','communicated','q','location','brandId','education','candidates','limit','offset','hasDetail','online','sort','collectedFrom','collectedTo'];
  if(Object.keys(input).some(k=>!allowed.includes(k)))fail('INVALID_QUERY_FIELD');
  if(input.status&&!['PENDING','NEED_DETAIL','WORTH','PASS'].includes(input.status))fail('INVALID_SCREENING_STATUS');
  for(const k of ['communicated','candidates','hasDetail','online'])if(input[k]!=null&&![true,false,'true','false'].includes(input[k]))fail('INVALID_QUERY');
  for(const k of ['q','location','brandId','education'])if(input[k]!=null&&typeof input[k]!=='string')fail('INVALID_QUERY');
  if(input.education!=null&&!['','不限','大专','本科','其他'].includes(input.education))fail('INVALID_EDUCATION');
- if(input.sort!=null&&!['updated','recommended','recent','online'].includes(input.sort))fail('INVALID_QUERY');
+ if(input.sort!=null&&!['collected','updated','recommended','recent','online'].includes(input.sort))fail('INVALID_QUERY');
+ for(const key of ['collectedFrom','collectedTo'])if(input[key]!=null){
+  const value=input[key];
+  if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value+'T00:00:00Z'))||new Date(value+'T00:00:00Z').toISOString().slice(0,10)!==value)fail('INVALID_COLLECTION_DATE');
+ }
+ if(input.collectedFrom&&input.collectedTo&&input.collectedFrom>input.collectedTo)fail('INVALID_COLLECTION_DATE');
  const limit=Number(input.limit??50),offset=Number(input.offset??0);
  if(!Number.isInteger(limit)||limit<1||limit>500||!Number.isInteger(offset)||offset<0)fail('INVALID_PAGINATION');
  const join=' FROM jobs j LEFT JOIN job_details d ON d.job_id=j.job_id';
@@ -406,6 +421,8 @@ export function queryJobs(db:any,input:any={}){
   "AND (j.screening_basis_hash IS NULL OR j.screening_basis_hash=coalesce(job_sha256(d.jd_text),j.list_hash)) "+
   "AND j.history_blocked=0 AND "+opened+")";
  const clauses=[],params:any[]=[];
+ if(input.collectedFrom){clauses.push("date(j.last_seen_at,'+8 hours')>=?");params.push(input.collectedFrom);}
+ if(input.collectedTo){clauses.push("date(j.last_seen_at,'+8 hours')<=?");params.push(input.collectedTo);}
  if(input.status==='PENDING')clauses.push("j.screening_status IN ('PENDING','NEED_DETAIL')");
  else if(input.status){clauses.push('j.screening_status=?');params.push(input.status);}
  if(input.brandId==='__ANONYMOUS__')clauses.push("(j.brand_id IS NULL AND coalesce(json_extract(j.list_json,'$.goldHunter'),0)=1)");
@@ -433,7 +450,7 @@ export function queryJobs(db:any,input:any={}){
  const where=clauses.length?' WHERE '+clauses.join(' AND '):'';
  const total=(db.prepare('SELECT count(*) n'+join+where).get(...params) as any).n;
  const recommended="CASE WHEN "+eligible+" THEN 0 ELSE 1 END,CASE WHEN j.screening_status='WORTH' AND j.communication_state<>'SUCCEEDED' THEN 0 ELSE 1 END,CASE WHEN j.screening_status='PASS' THEN 1 ELSE 0 END,coalesce(j.boss_online,-1) DESC,j.last_seen_at DESC,j.job_id ASC";
- const order=input.sort==='recommended'?recommended:input.sort==='recent'?'j.last_seen_at DESC,j.job_id ASC':input.sort==='online'?'coalesce(j.boss_online,-1) DESC,j.last_seen_at DESC,j.job_id ASC':'j.updated_at DESC,j.job_id ASC';
+ const order=input.sort==='recommended'?recommended:input.sort==='collected'||input.sort==='recent'||input.sort==null?'j.last_seen_at DESC,j.job_id ASC':input.sort==='online'?'coalesce(j.boss_online,-1) DESC,j.last_seen_at DESC,j.job_id ASC':'j.updated_at DESC,j.job_id ASC';
  const items=db.prepare('SELECT j.*,d.detail_json,d.jd_text,d.job_status_desc,d.invalid_status,d.boss_active_desc,d.fetched_at detail_fetched_at'+join+where+' ORDER BY '+order+' LIMIT ? OFFSET ?').all(...params,limit,offset).map(present);
  const summary:any=db.prepare("SELECT count(*) total,sum(CASE WHEN j.screening_status='WORTH' THEN 1 ELSE 0 END) worth,sum(CASE WHEN j.screening_status='PASS' THEN 1 ELSE 0 END) pass,sum(CASE WHEN j.screening_status IN ('PENDING','NEED_DETAIL') THEN 1 ELSE 0 END) pending,sum(CASE WHEN j.screening_status='NEED_DETAIL' THEN 1 ELSE 0 END) need_detail,sum(CASE WHEN j.communication_state='SUCCEEDED' THEN 1 ELSE 0 END) communicated,sum(CASE WHEN "+eligible+" THEN 1 ELSE 0 END) eligible"+join).get();
  const locations=db.prepare("SELECT DISTINCT city FROM jobs WHERE city IS NOT NULL AND trim(city)<>'' ORDER BY city").all().map((r:any)=>r.city);
@@ -472,19 +489,31 @@ export function getJobsDashboard(db:any){
   }
   return v;
  });
+ // Beijing-local daily windows: both event times are independent and not unique-job sums.
+ const dayStart=Date.UTC(today.getUTCFullYear(),today.getUTCMonth(),today.getUTCDate());
+ const days=Array.from({length:14},(_,i)=>{
+  const start=dayStart-(13-i)*86400000,end=start+86400000;
+  const date=new Date(start).toISOString().slice(0,10);
+  return{date,label:date.slice(5).replace('-','/'),start,end,received:0,communicated:0};
+ });
+ for(const row of rows){
+  const received=timestamps(row.first_seen_at),contact=row.communication_state==='SUCCEEDED'?timestamps(row.greet_confirmed_at):null;
+  for(const day of days){
+   if(received!=null&&received+8*3600000>=day.start&&received+8*3600000<day.end)day.received++;
+   if(contact!=null&&contact+8*3600000>=day.start&&contact+8*3600000<day.end)day.communicated++;
+  }
+ }
  const education={不限:0,大专:0,本科:0,'其他/未提供':0};
  const judgment={WORTH:0,PENDING:0,PASS:0};
  for(const r of rows){
-  if(r.screening_status==='WORTH'){
-   const e=String(r.education||'');
-   if(/本科/.test(e))education.本科++;
-   else if(/大专/.test(e))education.大专++;
-   else if(/不限|无要求/.test(e))education.不限++;
-   else education['其他/未提供']++;
-  }
+  const e=String(r.education||'');
+  if(/本科/.test(e))education.本科++;
+  else if(/大专/.test(e))education.大专++;
+  else if(/不限|无要求/.test(e))education.不限++;
+  else education['其他/未提供']++;
   const status=r.screening_status==='NEED_DETAIL'?'PENDING':r.screening_status;
   if(Object.hasOwn(judgment,status))judgment[status as keyof typeof judgment]++;
  }
- return{window:'recent-13-weeks',weeks:points,education,judgment,total:rows.length,
-  methodology:'Timeline counts current PASS status by screened_at and confirmed communication by greet_confirmed_at; historical status transitions are not available.'};
+ return{window:'recent-13-weeks',weeks:points,dailyWindow:'recent-14-days',days,education,judgment,total:rows.length,
+  methodology:'Weekly cumulative collected and confirmed contacts by event time, daily 14 Beijing-local dates. Stacked daily sum represents two distinct events, not deduplicated positions.'};
 }

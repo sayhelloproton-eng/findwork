@@ -25,3 +25,6 @@ expect=0 代表推荐；N≥1 是当前用户配置的第 N 个求职期望，�
 必须核对 List、Detail 两个 JSON 的职位 ID、JD、真实文件与 Chrome 下载完成，不把控制页 ACK 当成功；文件下载就是扩展的完成边界。扩展无需数据库，也不会自动入库；只有用户另行要求后处理时，才交给独立的外部应用完成。本 Skill 不调用作者的求职系统 Web、后端或 SQLite，也不要求安装主项目。招聘状态、猎头等字段按已确认/强候选/推测/未知分层，缺失证据不可编造。页面要求验证码、站点限制、FAILED 或 UNKNOWN 时停止，Greet UNKNOWN 不重新发送。
 
 详情见 references/actions.md、references/workflows.md、references/results.md、references/recovery.md，岗位字段见 references/fields.md。用户真实下载、SQLite、Cookie、登录状态及私人信息不得上传公共环境。
+
+
+独立 BOSS 扩展仍然无需安装 Findwork；如果 Greet 由 Findwork 主控调度，调用方必须完成逐职位授权、claim，以及在真正发出请求前即时 check-greet 的同 ID 校验。当前 PASS/PENDING 岗位不得使用旧队列、旧 claim 继续发送。扩展无数据库，不得冒称自己已经验证了岗位状态。

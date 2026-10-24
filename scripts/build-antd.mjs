@@ -7,4 +7,10 @@ await build({
  bundle:true,platform:'browser',format:'iife',target:'chrome125',
  jsx:'automatic',minify:true,legalComments:'none',logLevel:'warning'
 });
+await build({
+ entryPoints:[resolve(root,'app/web/echarts-entry.mjs')],
+ outfile:resolve(root,'app/web/dist/echarts.js'),
+ bundle:true,platform:'browser',format:'iife',target:'chrome125',
+ minify:true,legalComments:'none',logLevel:'warning'
+});
 console.log('ANT_DESIGN_BUILD=PASS');

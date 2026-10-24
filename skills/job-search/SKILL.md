@@ -52,7 +52,13 @@ description: Findwork 岗位数据管理与投递决策总控 Skill。引导 AI 
 
 使用 `query '{"status":"PENDING","limit":500}'` 分页查询，并按单条 `get JOB_ID` 核验当前状态与证据；查询的 `PENDING` 集合包含内部 `NEED_DETAIL`，需要再分流。
 
-- `PENDING` 且三项策略有效、事实足够 → 按个人画像、求职偏好、排除条件评估。
+- `PENDING` 且三项策略有效、事实足够 → 按个人画像、求职偏好、排除条件评估。无法形成可靠结论时仍为 PENDING，不勉强选 PASS/WORTH。
+- **面向用户只有 WORTH、PENDING、PASS 三种判断，不新增“待确认”状态。**
+  - **PENDING（待评估）**：未评估、缺 Detail 或策略/关键事实，均在待评估；AI 已完整评估但仍有疑问、矛盾或其他异常也保持 PENDING。此时 AI 必须通过 `decide-ai` 将 `PENDING` 和明确 `reason` 持久化：**已确认的证据与匹配点、尚未确认的具体问题、判断倾向或建议、希望用户核实的事项**。用户据此人工审阅；不联系招聘者。未启动评估的默认 PENDING 可以没有理由。
+  - **PASS**：只有根据个人画像、已确认的硬性排除和岗位事实，能够有把握判定不适合或不可满足核心要求时才 PASS，必须写充分理由。缺详情、模糊要求或普通偏好不足不直接 PASS；PASS 默认不进入人工复核和后续沟通清单。
+  - **WORTH（值得投）**：岗位事实支持个人画像胜任或合理迁移，符合已确认的求职偏好、未命中排除条件，且关键疑问已排除，记录匹配证据；WORTH 不自动触发沟通或投递。
+  - 内部 `NEED_DETAIL` 只是缺详情的待评估子情形，在 UI 中仍归入 PENDING，不是第四种判断。
+
 - `NEED_DETAIL` 且无有效 JD → 只补 Detail，不直接猜 PASS/WORTH；完整 Detail 导入后会重新变成 PENDING。
 - 已经 `WORTH` 或 `PASS` → **重复采集默认跳过评估**，保留历史决策和原因；若 `decision_stale=true`，禁止自动联系，标记待明确复核；仅在用户要求复核或明确规则授权复核时，用最新证据重新判断。
 - 已沟通、已有投递、`history_blocked` 或状态 `FAILED/UNKNOWN/IN_FLIGHT` → 不再安排重复对外动作；失败和未知不能自动重试。
@@ -64,7 +70,7 @@ description: Findwork 岗位数据管理与投递决策总控 Skill。引导 AI 
 
 - 从 DB 查询尚可联系的候选（`query '{"candidates":true,"sort":"recommended"}'`），结合实时 `get` 的 `eligible`、`decision_stale`、历史联系/投递信号进行阻断；按能力与职责匹配、招聘者活跃证据、行业偏好和可核查现实条件排序。**不引入未经确认的百分制评分或每日额度常数**。
 - 给用户展示每个拟沟通岗位的身份、判断理由、来源及计划动作，取得具体岗位的明确授权；WORTH 并不等于同意发送。即使用户请求批量，也要明确授权岗位 ID 范围，保持平台节流和串行约束。
-- 每条授权岗位执行 `claim` 锁定唯一 actionId → 按平台 Skill 执行真实 Greet → 找到 `BOSS/YYYY-MM-DD/greet/` 中对应**真实**结果文件 → `import-greet ABSOLUTE_GREET_RESULT_JSON JOB_ID` → `get JOB_ID` 读回 `communication_state` 和回执。只有真实成功才是 `SUCCEEDED`；失败/UNKNOWN 必须如实记录，不自动重试。
+- 每条授权岗位执行 `claim` 锁定唯一 actionId → **平台真正发出 Greet 前立即执行 `check-greet`，核验同一岗位/actionId 仍为 WORTH、未过期；PASS 不能凭旧 claim 重发** → 按平台 Skill 执行真实 Greet → 找到 `BOSS/YYYY-MM-DD/greet/` 中对应**真实**结果文件 → `import-greet ABSOLUTE_GREET_RESULT_JSON JOB_ID` → `get JOB_ID` 读回 `communication_state` 和回执。只有真实成功才是 `SUCCEEDED`；失败/UNKNOWN 必须如实记录，不自动重试。
 - Greet 是沟通，不是正式简历投递。现有 BOSS 扩展没有正式简历投递执行器；只有独立可核查的投递回执才可 `import-application`。**本系统不接管投递后的持续跟进**。
 
 ### 5. 查询和报告
@@ -76,3 +82,13 @@ description: Findwork 岗位数据管理与投递决策总控 Skill。引导 AI 
 任一关键步骤失败/来源 UNKNOWN/平台安全验证/业务码 37/下载身份不一致/策略缺失/乐观锁冲突：停在第一处真实失败，核对事实 Owner；可安全重读，不得重放未知的外部发送。原始 JSON 必须保留以便重验；禁止直接更新 SQLite 状态列绕过 CLI。优先参考 `references/database.md`、`references/evaluation.md` 和对应平台 Skill。
 
 **本 Skill 只定义通用工作方式及隐私输入契约，不存用户个人资料，不负责整个仓库的 AI 初始化/bootstrap。**
+
+
+## 新确认的策略、质量与展示边界（2026-10-24）
+
+管理岗、应届岗、大厂正式招聘排除、一线大厂外包/派遣例外、不能单凭薪资上限 PASS 等个人策略已在本机私有 exclusions 中由用户确认，依最新私有内容执行；实际未知维持 PENDING 并写疑点。用户真实岗位仅依据原 JD 哈希逐条 AI 提炼，禁止将关键词拼接冒充完整 AI 评估。无完整详情且未成功沟通的历史岗位须先备份，再运行 scripts/cleanup-undetailed.mjs 预览/清理，沟通过的必须保留。四宫格全 ECharts；默认按最近 List 采集时间排序。
+
+
+## 本机今日批次的结构化摘录与模型决策须分开
+
+已采集原文可用 scripts/jd-extract.mjs preview/ apply 仅做**源文段落提取**；其摘要标题有“原文摘录｜”前缀，工作台显示“原文摘录”，并明确**没有模型理解、没有 AI 评估、没有更新 WORTH/PASS**。只有实际经 AI 逐份分析 JD、真实私有策略、最新 hash 和乐观版本校验的结果，才能作为正式 AI 筛选结论写回。不要将规则提取器结果描述为 AI 已完成提炼。

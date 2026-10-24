@@ -19,7 +19,7 @@ export function syntheticFixtureBundle(){
 export function seedFixtureBundle(db:any,bundle:any){
  if(!bundle||!Array.isArray(bundle.details))throw Error('INVALID_FIXTURE_BUNDLE');
  importList(db,bundle.list);for(const detail of bundle.details)importDetail(db,detail);
- const jobs=queryJobs(db,{limit:500}).items;
+ const jobs=queryJobs(db,{sort:"updated",limit:500}).items; // synthetic seeding must not depend on UI default sort
  for(const [i,j] of jobs.entries()){
   const status=j.facts.closed?'PASS':!j.has_detail?(i%2?'NEED_DETAIL':'PENDING'):i%3===0?'PASS':i%3===1?'WORTH':'PENDING';
   decideJob(db,{jobId:j.job_id,status,reason:status==='PASS'?'验收模拟：此岗位不纳入本次投递范围。':status==='WORTH'?'验收模拟：岗位职责与目标方向相关，保留为候选。':null,source:'DEMO'});

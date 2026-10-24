@@ -1,14 +1,21 @@
-import React,{useCallback,useEffect,useState} from 'react';
+import React,{useCallback,useEffect,useRef,useState} from 'react';
+import {makeJudgmentPieOptions} from './judgment-pie-options.mjs';
+import {describeDecision} from './decision-display.mjs';
+import {makeCumulativeOptions,makeDailyStackedOptions} from './dashboard-options.mjs';
 import {createRoot} from 'react-dom/client';
-import {Alert,Button,Card,Col,ConfigProvider,Empty,Form,Pagination,Radio,Row,Select,Space,Spin,Table,Tag,Tooltip,Popover,Typography} from 'antd';
+import {Alert,Button,Card,Col,ConfigProvider,DatePicker,Empty,Form,Pagination,Radio,Row,Select,Space,Spin,Table,Tag,Tooltip,Popover,Typography} from 'antd';
 import zhCN from 'antd/locale/zh_CN';
+import dayjs from 'dayjs';
+import {collectionDateRange,todayInShanghai} from './collection-date-filter.mjs';
 const {Title,Text}=Typography;
 const labels={WORTH:'值得投',PENDING:'待评估',NEED_DETAIL:'待评估',PASS:'PASS'};
 const colors={WORTH:'success',PENDING:'default',NEED_DETAIL:'default',PASS:'error'};
 const statusOptions=[{label:'全部',value:''},{label:'值得投',value:'WORTH'},{label:'待评估',value:'PENDING'},{label:'PASS',value:'PASS'}];
 const commOptions=[{label:'全部',value:''},{label:'已沟通',value:'true'},{label:'未沟通',value:'false'}];
 const educationOptions=[{label:'全部',value:''},{label:'不限',value:'不限'},{label:'大专',value:'大专'},{label:'本科',value:'本科'},{label:'其他',value:'其他'}];
-const defaultFilters={status:'',communicated:'',education:'',brandId:'',location:''};
+const sortOptions=[{label:'采集时间',value:'collected'},{label:'更新时间',value:'updated'}];
+const dateModes=[{label:'所选日期',value:'day'},{label:'最近一天',value:'last1'},{label:'最近三天',value:'last3'}];
+const defaultFilters={status:'',communicated:'',education:'',brandId:'',location:'',sort:'collected',dateMode:'day',date:dayjs(todayInShanghai())};
 const display=v=>v==null||v===''?'未提供':String(v);
 const joined=(...items)=>items.filter(Boolean).join(' · ');
 async function api(url,options){
@@ -42,17 +49,18 @@ function ConditionTags({facts:f}){
 function JdPreview({job:j}){
  const s=j.ai_summary;
  if(j.ai_summary_status!=='READY'||!s)return <span className="ai-jd-pending">{j.ai_summary_status==='NO_DETAIL'?'—':'待 AI 提炼'}</span>;
+ const extracted=s.headline.startsWith('原文摘录｜');
  const groups=[['核心职责',s.responsibilities],['硬性要求',s.requirements],['加分项',s.bonus],['特别注意',s.notices]];
  return <Popover trigger="hover" placement="bottomLeft" overlayClassName="ai-jd-popover" mouseEnterDelay={0.12}
-  title="AI 岗位提炼 · 来源：已采集 JD" content={<div className="ai-jd-popover-body">
+  title={extracted?'JD 原文结构化摘录 · 非 AI 评估':'AI 岗位提炼 · 来源：已采集 JD'} content={<div className="ai-jd-popover-body">
    {groups.filter(([,items])=>items?.length).map(([title,items])=><section className="ai-jd-group" key={title}>
     <div className="ai-jd-group-title">{title}</div>
     {items.map((item,i)=><div key={i} className="ai-jd-point"><span>•</span><span>{item}</span></div>)}
    </section>)}
-   <div className="ai-jd-source">AI 提炼仅供筛选；点击岗位行查看原始完整 JD</div>
+   <div className="ai-jd-source">{extracted?'仅原文分段摘录，未由模型评估；点击岗位查看完整 JD':'AI 提炼仅供筛选；点击岗位行查看原始完整 JD'}</div>
   </div>}>
-  <div className="ai-jd-trigger" tabIndex={0} aria-label={'AI 岗位概述：'+s.headline}>
-   <span className="ai-jd-caption">AI 提炼</span>
+  <div className="ai-jd-trigger" tabIndex={0} aria-label={(extracted?'岗位原文摘录：':'AI 岗位概述：')+s.headline}>
+   <span className="ai-jd-caption">{extracted?'原文摘录':'AI 提炼'}</span>
    <span className="ai-jd-headline">{s.headline}</span>
    <span className="ai-jd-hint">悬浮查看结构化提炼</span>
   </div>
@@ -116,81 +124,73 @@ function RecruiterInfo({job:j}){
   </Tooltip>:<Text className="capture-time">采集时间未记录</Text>}
  </div>;
 }
-const trendSeries=[
- {key:'received',name:'收录岗位',color:'#3678d4'},
- {key:'pass',name:'PASS',color:'#e1a046'},
- {key:'communicated',name:'已沟通',color:'#329e81'}
-];
-function TrendChart({weeks,mode}){
- if(!weeks?.length)return <div className="dashboard-empty">暂无趋势数据</div>;
- const suffix=mode==='weekly'?'New':'Total',W=365,H=205,left=30,top=13,height=153,width=325;
- const max=Math.max(1,...weeks.flatMap(w=>trendSeries.map(s=>Number(w[s.key+suffix]||0))));
- const xpos=i=>left+width*(i/Math.max(1,weeks.length-1));
- const ypos=value=>top+height-height*Number(value||0)/max;
- return <div className="trend-graph">
-  <svg className="trend-svg" role="img" aria-label={mode==='weekly'?'每周新增岗位趋势':'累计岗位趋势'} viewBox={'0 0 '+W+' '+H} preserveAspectRatio="xMidYMid meet">
-   {[0,1,2,3,4].map(i=><g key={i}>
-    <line x1={left} x2={W-9} y1={top+height*i/4} y2={top+height*i/4} stroke="#e9eef5" strokeWidth="1"/>
-    <text x={left-7} y={top+height*i/4+4} fontSize="11" textAnchor="end" fill="#8493a8">{Math.round(max*(4-i)/4)}</text>
-   </g>)}
-   {trendSeries.map(s=><g key={s.key}>
-    <polyline fill="none" stroke={s.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"
-     points={weeks.map((w,i)=>xpos(i)+','+ypos(w[s.key+suffix])).join(' ')}/>
-    {weeks.map((w,i)=><circle key={i} cx={xpos(i)} cy={ypos(w[s.key+suffix])} r="3.4" fill={s.color}>
-      <title>{w.date+' '+s.name+'：'+(w[s.key+suffix]||0)+' 条'}</title>
-    </circle>)}
-   </g>)}
-   {weeks.map((w,i)=>i%3===0||i===weeks.length-1?<text key={i} x={xpos(i)} y={H-14} fontSize="11" textAnchor="middle" fill="#71829a">{w.label}</text>:null)}
-  </svg>
-  <div className="chart-legend">{trendSeries.map(s=><span key={s.key}><i style={{background:s.color}}/>{s.name}</span>)}</div>
+function EChartCanvas({options,dataKey,ariaLabel,className='trend-echart',centerTotal=null}){
+ const chartEl=useRef(null);
+ useEffect(()=>{
+  const node=chartEl.current;
+  if(!node||!window.findworkEcharts)return;
+  const instance=window.findworkEcharts.init(node,null,{renderer:'canvas'});
+  instance.setOption(options);
+  const resize=()=>instance.resize();
+  const observer=typeof ResizeObserver==='function'?new ResizeObserver(resize):null;
+  observer?.observe(node);
+  window.addEventListener('resize',resize);
+  return()=>{observer?.disconnect();window.removeEventListener('resize',resize);instance.dispose();};
+ },[dataKey]);
+ return <div className="dashboard-echart-wrap">
+  <div ref={chartEl} className={className} role="img" aria-label={ariaLabel}/>
+  {centerTotal!==null&&<div className="judgment-echart-center"><strong>{centerTotal}</strong><span>岗位</span></div>}
  </div>;
 }
-function DonutCard({title,subtitle,entries,footnote}){
- const colors=['#397dd4','#e5a04c','#329e81','#acbbcd'];
- const total=entries.reduce((n,v)=>n+(v.value||0),0);
- let used=0;
- const segments=entries.filter(v=>v.value>0).map(v=>{
-  const a=used;used+=(v.value/total)*100;
-  return colors[entries.indexOf(v)%colors.length]+' '+a+'% '+used+'%';
- });
- const gradient=segments.length?'conic-gradient('+segments.join(',')+')':'#e4eaf3';
+function TrendChart({data,mode}){
+ const rows=mode==='cumulative'?data.weeks:data.days;
+ const options=mode==='cumulative'?makeCumulativeOptions(rows):makeDailyStackedOptions(rows);
+ return <EChartCanvas options={options} dataKey={mode+'|'+JSON.stringify(rows)}
+  ariaLabel={mode==='cumulative'?'近三个月每周累计收录与累计沟通':'最近十四天每日新增收录与已沟通堆叠图'}/>;
+}
+function DonutCard({title,subtitle,entries,help}){
+ const total=entries.reduce((n,e)=>n+Math.max(0,Number(e.value)||0),0);
  return <div className="dashboard-panel donut-card">
-  <div className="dashboard-panel-title">{title}</div>
-  <div className="dashboard-subtitle">{subtitle}</div>
-  <div className="donut" style={{background:gradient}} role="img" aria-label={title+' '+entries.map(v=>v.label+v.value+'条').join('，')}>
-   <div className="donut-hole"><strong>{total}</strong><span>岗位</span></div>
+  <div className="dashboard-panel-title-row">
+   <div className="dashboard-panel-title">{title}</div>
+   {help&&<Tooltip title={help} placement="topLeft" mouseEnterDelay={0.1}>
+    <button type="button" className="judgment-help-trigger" aria-label="查看岗位判断状态说明">?</button>
+   </Tooltip>}
   </div>
-  <div className="donut-legend">{entries.filter(e=>e.value>0).map((v,i)=><div className="donut-legend-item" key={v.label}>
-   <span className="donut-label"><i style={{background:colors[entries.indexOf(v)%colors.length]}}/>{v.label}</span>
-   <span>{v.value} <small>({total?Math.round(100*v.value/total):0}%)</small></span>
-  </div>)}</div>
-  <div className="dashboard-note">{footnote}</div>
+  <div className="dashboard-subtitle">{subtitle}</div>
+  <EChartCanvas options={makeJudgmentPieOptions(entries,title)}
+   dataKey={title+'|'+entries.map(e=>e.label+':'+e.value).join('|')}
+   ariaLabel={title+'：'+entries.map(e=>e.label+e.value+'条').join('，')}
+   className="judgment-echart" centerTotal={total}/>
  </div>;
 }
+const judgmentHelp=<div className="judgment-help-content">
+ <div><strong>值得投：</strong>AI 根据已确认的个人画像、求职偏好、排除条件和岗位证据，认为值得争取；不代表已沟通或正式投递。</div>
+ <div><strong>待评估：</strong>尚未评估、缺详情，或 AI 分析后仍有疑问及其他异常。已分析的岗位会保存判断依据、疑点和建议，供人工查看。</div>
+ <div><strong>PASS：</strong>明确不符合已确认的排除条件或关键要求，有证据和原因，不再优先推荐复核。</div>
+</div>;
 function JobDashboard({data}){
  if(!data)return <div className="dashboard-loading"><Spin size="small"/> 正在载入真实岗位趋势…</div>;
  const degree=data.education||{},decisions=data.judgment||{};
  return <section className="dashboard-row" aria-label="岗位分析大盘">
   <div className="dashboard-panel trend-panel">
-   <div className="dashboard-panel-title">累计总量</div>
-   <div className="dashboard-subtitle">最近三个月 · 按周累计</div>
-   <TrendChart weeks={data.weeks} mode="cumulative"/>
-   <div className="dashboard-note">收录、PASS、已沟通 · 截至每周末的累计数量</div>
+   <div className="dashboard-panel-title">累计收录与沟通</div>
+   <div className="dashboard-subtitle">最近三个月 · 每周累计</div>
+   <TrendChart data={data} mode="cumulative"/>
   </div>
   <div className="dashboard-panel trend-panel">
-   <div className="dashboard-panel-title">每周新增</div>
-   <div className="dashboard-subtitle">最近三个月 · 每周变化</div>
-   <TrendChart weeks={data.weeks} mode="weekly"/>
-   <div className="dashboard-note">收录、PASS、已沟通 · 当周新增数量</div>
+   <div className="dashboard-panel-title">每日新增与沟通</div>
+   <div className="dashboard-subtitle">最近14天 · 每日堆叠</div>
+   <TrendChart data={data} mode="daily"/>
   </div>
-  <DonutCard title="可投岗位学历" subtitle="当前值得投岗位的学历要求" entries={[
+  <DonutCard title="岗位学历分布" subtitle="全部收录岗位 · 学历要求" entries={[
    {label:'不限',value:degree['不限']||0},{label:'大专',value:degree['大专']||0},
    {label:'本科',value:degree['本科']||0},{label:'其他/未提供',value:degree['其他/未提供']||0}
-  ]} footnote="以值得投岗位为范围；学历按岗位要求互斥分类。"/>
-  <DonutCard title="岗位判断占比" subtitle="当前全部收录岗位" entries={[
+  ]}/>
+  <DonutCard title="岗位判断占比" subtitle="当前全部收录岗位" help={judgmentHelp} entries={[
    {label:'值得投',value:decisions.WORTH||0},{label:'待评估',value:decisions.PENDING||0},
    {label:'PASS',value:decisions.PASS||0}
-  ]} footnote="缺详情归入待评估。"/>
+  ]}/>
  </section>;
 }
 function DetailPane({job,detail}){
@@ -239,8 +239,10 @@ function Worktable(){
  const [demo,setDemo]=useState(false);
  useEffect(()=>{
   const controller=new AbortController();const params=new URLSearchParams();
-  Object.entries(filters).forEach(([k,v])=>{if(v!==''&&v!=null)params.set(k,String(v));});
-  params.set('limit',String(pageSize));params.set('offset',String((page-1)*pageSize));params.set('sort','updated');
+  Object.entries(filters).forEach(([k,v])=>{if(k!=='dateMode'&&k!=='date'&&v!==''&&v!=null)params.set(k,String(v));});
+  const range=collectionDateRange(filters.dateMode,filters.date?.format('YYYY-MM-DD')||todayInShanghai());
+  params.set('collectedFrom',range.collectedFrom);params.set('collectedTo',range.collectedTo);
+  params.set('limit',String(pageSize));params.set('offset',String((page-1)*pageSize));
   setLoading(true);setError('');
   api('/api/jobs?'+params,{signal:controller.signal}).then(data=>{
    if(controller.signal.aborted)return;
@@ -257,7 +259,10 @@ function Worktable(){
   return()=>controller.abort();
  },[expandedId]);
  useEffect(()=>{let live=true;api('/api/dashboard').then(data=>{if(live)setDashboard(data);}).catch(e=>{if(live)setError(e.message);});return()=>{live=false;};},[]);
- const applyFilters=values=>{setFilters({...defaultFilters,...values});setPage(1);setExpandedId(null);};
+ const applyFilters=(values,changes={})=>{
+  if('date' in changes&&changes.date){values={...values,dateMode:'day'};form.setFieldValue('dateMode','day');}
+  setFilters({...defaultFilters,...values});setPage(1);setExpandedId(null);
+ };
  const clear=()=>{form.setFieldsValue(defaultFilters);applyFilters(defaultFilters);};
  const columns=[
   {title:'职位 / 公司',key:'name',width:315,render:(_,j)=><div className="job-primary">
@@ -272,10 +277,13 @@ function Worktable(){
    {title:'技能 / 福利',key:'skills',width:390,render:(_,j)=><SkillsAndBenefits job={j}/>},
   {title:'职责 / 要求',key:'jd_preview',width:350,render:(_,j)=><JdPreview job={j}/>},
   {title:'招聘者/采集时间',key:'boss',width:165,render:(_,j)=><RecruiterInfo job={j}/>},
-  {title:'判断 / 原因',key:'decision',width:175,render:(_,j)=><div className="stack">
-   <Tag bordered={false} color={colors[j.screening_status]}>{labels[j.screening_status]||'未知'}</Tag>
-   <Tooltip title={j.screening_reason||'尚未完成判断'}><Text className="two-lines" type="secondary">{j.screening_reason||'尚未完成判断'}</Text></Tooltip>
-  </div>},
+  {title:'判断 / 原因',key:'decision',width:175,render:(_,j)=>{
+   const state=describeDecision(j);
+   return <div className="stack">
+    <Tag bordered={false} color={colors[j.screening_status]}>{labels[j.screening_status]||'未知'}</Tag>
+    <Tooltip title={state.tooltip}><Text className={'two-lines decision-note decision-note-'+state.kind} type="secondary">{state.text}</Text></Tooltip>
+   </div>;
+  }},
   {title:'沟通 / 时间',key:'communication',width:172,render:(_,j)=><div className="stack communication-dates">
    <Tag color={j.communicated?'success':'default'} bordered={false}>{j.communicated?'已沟通':'未沟通'}</Tag>
    {j.communicated&&j.communicated_at&&<Tooltip title={'确认 Greet 成功时间（北京时间）：'+formatCaptureTime(j.communicated_at)}><Text className="communication-time">沟通 {formatCaptureTime(j.communicated_at)}</Text></Tooltip>}
@@ -288,7 +296,7 @@ function Worktable(){
   {demo&&<Alert type="warning" showIcon className="top-alert" message="演示数据：筛选及沟通记录均为模拟，不代表真实投递。"/>}
   <JobDashboard data={dashboard}/>
   <Card className="filter-card" size="small">
-   <Form form={form} name="job-filters" initialValues={defaultFilters} onValuesChange={(_,values)=>applyFilters(values)} className="filter-form" layout="vertical" size="small">
+   <Form form={form} name="job-filters" initialValues={defaultFilters} onValuesChange={(changes,values)=>applyFilters(values,changes)} className="filter-form" layout="vertical" size="small">
     <Form.Item name="location" label="地点" className="filter-location">
      <Select options={[{label:'全部地点',value:''},...locations.map(x=>({label:x,value:x}))]}/>
     </Form.Item>
@@ -298,6 +306,13 @@ function Worktable(){
     <Form.Item name="education" label="学历" className="filter-radio"><Radio.Group options={educationOptions} optionType="button" buttonStyle="solid"/></Form.Item>
     <Form.Item name="communicated" label="沟通" className="filter-radio"><Radio.Group options={commOptions} optionType="button" buttonStyle="solid"/></Form.Item>
     <Form.Item name="status" label="投递判断" className="filter-radio"><Radio.Group options={statusOptions} optionType="button" buttonStyle="solid"/></Form.Item>
+    <Form.Item name="date" label="采集日期" className="filter-date">
+     <DatePicker format="YYYY-MM-DD" allowClear={false} inputReadOnly placeholder="选择日期"/>
+    </Form.Item>
+    <Form.Item name="dateMode" label="日期范围" className="filter-radio filter-date-mode">
+     <Radio.Group options={dateModes} optionType="button" buttonStyle="solid"/>
+    </Form.Item>
+    <Form.Item name="sort" label="排序" className="filter-radio"><Radio.Group options={sortOptions} optionType="button" buttonStyle="solid"/></Form.Item>
     <Form.Item className="filter-buttons"><Button onClick={clear} id="reset-filters">重置</Button></Form.Item>
    </Form>
   </Card>

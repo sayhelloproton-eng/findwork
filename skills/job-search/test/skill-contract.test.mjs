@@ -49,6 +49,21 @@ test('public policy documents are generic, cross-platform and do not embed priva
  assert.match(root,/目前只有 BOSS/);
 });
 
+test('three judgment statuses include AI uncertainty and a hover help trigger',()=>{
+ for(const v of ['WORTH','PENDING','PASS','NEED_DETAIL','reason','疑问','建议']){
+  assert.ok(root.includes(v),'missing Skill rule '+v);
+  assert.ok(evaluation.includes(v),'missing evaluation rule '+v);
+ }
+ assert.match(root,/不新增“待确认”状态/);
+ assert.match(evaluation,/AI 主动写回的 PENDING 必须附理由/);
+ const ui=read('app/web/antd-entry.jsx');
+ const css=read('app/web/styles.css');
+ assert.match(ui,/help=\{judgmentHelp\}/);
+ assert.match(ui,/className="judgment-help-trigger"/);
+ assert.match(ui,/aria-label="查看岗位判断状态说明"/);
+ for(const v of ['值得投：','待评估：','PASS：'])assert.ok(ui.includes(v));
+ assert.match(css,/\.judgment-help-trigger/);
+});
 test('all Skill references are real and no retired system docs referenced',()=>{
  for(const f of ['database.md','boss-workflow.md','candidate-profile.md','target-roles.md',
  'exclusions.md','evaluation.md','private-policy.md']){

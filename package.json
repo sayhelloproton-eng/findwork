@@ -12,7 +12,7 @@
     "demo": "node app/server/server.ts --demo",
     "jobs": "node app/server/job-cli.ts",
     "build:ui": "node scripts/build-antd.mjs",
-    "test": "node --test --test-concurrency=1 app/tests/job-store.public.test.ts app/tests/public-app.public.test.ts app/tests/public-seed.public.test.ts",
+    "test": "node --test --test-concurrency=1 app/tests/job-store.public.test.ts app/tests/public-app.public.test.ts app/tests/public-seed.public.test.ts app/tests/judgment-chart.public.test.mjs",
     "verify:extension": "npm --prefix platforms/boss/extension run verify",
     "verify": "npm run build:ui && npm test && npm run verify:extension && node scripts/verify-repo.mjs && node scripts/audit-public.mjs",
     "prestart": "npm run build:ui",
@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "antd": "6.6.7",
+    "echarts": "6.1.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

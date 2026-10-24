@@ -17,6 +17,12 @@ const failures=[];
 for(const rel of paths){
  if(forbiddenPath.test(rel)){failures.push(rel+':FORBIDDEN_FILE');continue;}
  const content=fs.readFileSync(path.join(root,rel));
+ // Only the explicitly approved public workbench screenshot may be binary.
+ if(rel==='assets/job-workbench.png'){
+  const signature=Buffer.from('89504e470d0a1a0a','hex');
+  if(content.length>2_000_000||!content.subarray(0,8).equals(signature))failures.push(rel+':INVALID_PUBLIC_SCREENSHOT');
+  continue;
+ }
  if(content.includes(0)){failures.push(rel+':BINARY_IN_PUBLIC_SCOPE');continue;}
  const text=content.toString('utf8');
  for(const [kind,pattern] of patterns){
@@ -27,6 +33,7 @@ for(const rel of paths){
 const readme=fs.readFileSync(path.join(root,'README.md'),'utf8');
 const link='https://github.com/sayhelloproton-eng/findwork/blob/main/GETTING_STARTED.md';
 if(!readme.includes(link))failures.push('README.md:GUIDE_LINK_MISSING');
+if(!readme.includes('](./assets/job-workbench.png)'))failures.push('README.md:WORKBENCH_IMAGE_MISSING');
 if(/BOSS|直聘|风控|逆向|伪造/.test(readme))failures.push('README.md:VENDOR_OR_RISK_WORDING');
 for(const rel of ['.private/job-search/candidate-profile.md','.private/job-search/target-roles.md',
  '.private/job-search/exclusions.md','app/db/runtime/jobs.sqlite']){

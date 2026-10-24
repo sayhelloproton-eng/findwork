@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import { openJobsDatabase, readJobFile, importList, decideJob, importDetail, importGreet, claimGreet, queryJobs, getJobDetail, restoreRawSources,restoreRawReceipts,importAiSummaries,decideAiJob,importApplication,getJobEvents } from '../db/ingestion/job-store.ts';
+import { openJobsDatabase, readJobFile, importList, decideJob, importDetail, importGreet, claimGreet, queryJobs, getJobDetail, restoreRawSources,restoreRawReceipts,importAiSummaries,decideAiJob,importApplication,getJobEvents,checkGreetBeforeSend } from '../db/ingestion/job-store.ts';
 
 export function runJobCommand(db: any, command: string, argument?: string, expectedJobId?: string) {
   if (command==='init') return {version:6,tables:['jobs','job_details','list_responses','job_events']};
@@ -22,6 +22,7 @@ export function runJobCommand(db: any, command: string, argument?: string, expec
   if (command==='decide-ai') return decideAiJob(db,input);
   if (command==='events') return getJobEvents(db,input.jobId);
   if (command==='claim') return claimGreet(db,input);
+  if (command==='check-greet') return checkGreetBeforeSend(db,input);
   if (command==='query') return queryJobs(db,input);
   throw new Error('UNKNOWN_COMMAND');
 }

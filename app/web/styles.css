@@ -139,8 +139,12 @@ body{margin:0}#root{min-height:100vh}
 .welfare-more-content{max-width:440px;max-height:50vh;overflow-y:auto}
 /* Four equal quarters: two independent trend lines and two independent pies. */
 .dashboard-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:10px 0 12px;align-items:stretch}
-.dashboard-panel{background:#fff;border:1px solid #e1e8f1;border-radius:8px;padding:12px;min-width:0;min-height:295px}
+.dashboard-panel{background:#fff;border:1px solid #e1e8f1;border-radius:8px;padding:10px 12px;min-width:0;height:230px;min-height:230px;box-sizing:border-box}
 .dashboard-panel-title{font-size:13px;font-weight:650;color:#233b59}
+.dashboard-panel-title-row{display:flex;align-items:center;gap:6px}
+.judgment-help-trigger{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border:1px solid #adbad0;border-radius:50%;padding:0;background:#fff;color:#687e9d;font-size:11px;font-weight:650;line-height:1;cursor:pointer}
+.judgment-help-trigger:hover,.judgment-help-trigger:focus-visible{color:#2464b5;border-color:#5e94da;outline-offset:2px}
+.judgment-help-content{max-width:330px;display:grid;gap:8px;font-size:12px;line-height:1.6}
 .dashboard-subtitle{font-size:11px;color:#8492a6;margin-top:2px}
 .dashboard-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
 .trend-graph{min-width:0;margin-top:12px}
@@ -150,6 +154,12 @@ body{margin:0}#root{min-height:100vh}
 .chart-legend i,.donut-label i{width:9px;height:9px;border-radius:100%;flex-shrink:0}
 .dashboard-note{font-size:10px;line-height:1.5;color:#93a0b1;margin-top:7px}
 .donut-card{display:flex;flex-direction:column;align-items:stretch}
+.dashboard-echart-wrap{position:relative;height:170px;min-width:0;width:100%;flex:0 0 auto}
+.trend-echart{height:100%;width:100%}
+.judgment-echart{width:100%;height:100%}
+.judgment-echart-center{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);pointer-events:none;display:flex;align-items:center;flex-direction:column;justify-content:center}
+.judgment-echart-center strong{font-size:21px;line-height:1.2;color:#2d425e}
+.judgment-echart-center span{font-size:10px;color:#8997a8}
 .donut{width:129px;height:129px;border-radius:50%;display:flex;justify-content:center;align-items:center;margin:12px auto 7px}
 .donut-hole{width:94px;height:94px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0}
 .donut-hole strong{font-size:23px;line-height:1.2;color:#2d425e}
@@ -171,3 +181,13 @@ body{margin:0}#root{min-height:100vh}
 .trend-panel .trend-svg{height:200px}
 .trend-panel .chart-legend{margin-left:0;gap:9px;font-size:10px}
 .trend-panel .dashboard-note{margin-top:6px}
+
+/* PENDING remains one DB state; evidence maturity differs in the reason. */
+.decision-note-unassessed{color:#8b99ac}
+.decision-note-uncertain{color:#a46b2b}
+.decision-note-incomplete-record{color:#b76b3c}
+
+/* Calendar-day collection filter, separate from sorting. */
+.filter-form .filter-date{width:130px}
+.filter-date .ant-picker{width:100%}
+.filter-form .filter-date-mode{flex-shrink:0}
