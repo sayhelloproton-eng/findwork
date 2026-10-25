@@ -16,7 +16,10 @@ const patterns=[
 const failures=[];
 for(const rel of paths){
  if(forbiddenPath.test(rel)){failures.push(rel+':FORBIDDEN_FILE');continue;}
- const content=fs.readFileSync(path.join(root,rel));
+ const absolute=path.join(root,rel);
+ // Git still lists tracked files deleted in this worktree until their deletion is staged.
+ if(!fs.existsSync(absolute))continue;
+ const content=fs.readFileSync(absolute);
  // Only the explicitly approved public workbench screenshot may be binary.
  if(rel==='assets/job-workbench.png'){
   const signature=Buffer.from('89504e470d0a1a0a','hex');

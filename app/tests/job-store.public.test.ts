@@ -14,8 +14,8 @@ const worth=(db:any,jobId='a',extra:any={})=>decideJob(db,{jobId,status:'WORTH',
 function setup(t:any,ids=['a']){const db=openJobsDatabase(':memory:');t.after(()=>db.close());importList(db,list(...ids));return db;}
 
 test('v3 store retains two job business tables, a raw response archive and four decisions',t=>{
- const db=setup(t,[]);assert.deepEqual(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map((r:any)=>r.name),['job_details','job_events','jobs','list_responses']);
- assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version,6);assert.equal(queryJobs(db).total,0);
+ const db=setup(t,[]);assert.deepEqual(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map((r:any)=>r.name),['job_daily_batches','job_daily_observations','job_details','job_events','jobs','list_responses']);
+ assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version,7);assert.equal(queryJobs(db).total,0);
  const names=db.prepare('PRAGMA table_info(jobs)').all().map((r:any)=>r.name);assert.equal(names.includes('match_score'),false);assert.equal(names.includes('priority'),false);
 });
 test('real company ID is stored and supports exact and anonymous recruiter filtering',t=>{
@@ -36,20 +36,20 @@ test('real company ID is stored and supports exact and anonymous recruiter filte
  assert.equal(queryJobs(db,{brandId:'company-1'}).total,1);
  assert.throws(()=>queryJobs(db,{education:'博士或魔法师'}),/INVALID_EDUCATION/);
 });
-test('three-month chart is driven by stored job life-cycle facts',t=>{
+test('daily collection chart counts imported unique jobs and preserves decision totals',t=>{
  const db=setup(t,['a','b']),chart=getJobsDashboard(db);
  assert.equal(chart.total,2);
- assert.equal(chart.weeks.length,13);
+ assert.equal(chart.days.length,14);
  assert.equal(chart.judgment.PENDING,2);
  assert.equal(chart.education.本科,0);
- assert.equal(chart.weeks.at(-1).receivedTotal,2);
+ assert.equal(chart.days.at(-1).collected,2);
 });
-test('daily series and weekly cumulative derive from lifecycle timestamps',t=>{
+test('daily collection and confirmed communication are separate metrics',t=>{
  const db=setup(t,['a','b']),chart=getJobsDashboard(db);
- assert.equal(chart.weeks.length,13);assert.equal(chart.days.length,14);
- assert.equal(chart.weeks.at(-1).receivedTotal,2);
- assert.equal(chart.weeks.at(-1).communicatedTotal,0);
- assert.equal(chart.days.reduce((sum,d)=>sum+d.received,0),2);
+ assert.equal(chart.days.length,14);assert.equal(chart.days.length,14);
+ assert.equal(chart.days.at(-1).collected,2);
+ assert.equal(chart.days.at(-1).communicated,0);
+ assert.equal(chart.days.every(d=>d.collected===null||Number.isInteger(d.collected)),true);
  assert.ok(chart.days.every(d=>Number.isInteger(d.communicated)));
 });
 test('collection default sort differs from mutable updated timestamp',t=>{
@@ -69,6 +69,37 @@ test('PASS invalidates even the same preexisting claim and blocks pre-send',t=>{
  decideJob(db,{jobId:'a',status:'PASS',reason:'人工确认不投'});
  assert.throws(()=>claimGreet(db,{jobId:'a',actionId:'send-a'}),/GREET_BLOCKED/);
  assert.throws(()=>checkGreetBeforeSend(db,{jobId:'a',actionId:'send-a'}),/GREET_BLOCKED/);
+});
+test('mandatory postgraduate degree stays out of candidates even with a legacy WORTH decision',t=>{
+ const db=setup(t,[]);
+ const p:any=list('master','doctor','jd-master','bachelor-alternative','bachelor-preferred');
+ p.zpData.jobList[0].jobDegree='硕士';
+ p.zpData.jobList[1].jobDegree='博士';
+ for(let i=2;i<5;i++)p.zpData.jobList[i].jobDegree='本科';
+ importList(db,p);
+ for(const id of ['jd-master','bachelor-alternative','bachelor-preferred'])worth(db,id);
+ // Build a synthetic legacy decision from the old policy; normal decideJob now rejects it.
+ db.prepare("UPDATE jobs SET screening_status='WORTH',screening_reason='legacy incorrectly accepted' WHERE job_id IN ('master','doctor')").run();
+ const d:any=detail('jd-master');d.rawResponse.zpData.jobInfo.degreeName='本科';
+ d.rawResponse.zpData.jobInfo.postDescription='任职要求：1. 硕士及以上学历，计算机专业';
+ importDetail(db,d);
+ const alternative:any=detail('bachelor-alternative');alternative.rawResponse.zpData.jobInfo.degreeName='本科';
+ alternative.rawResponse.zpData.jobInfo.postDescription='要求本科或研究生，技术扎实';
+ importDetail(db,alternative);
+ const preferred:any=detail('bachelor-preferred');preferred.rawResponse.zpData.jobInfo.degreeName='本科';
+ preferred.rawResponse.zpData.jobInfo.postDescription='本科及以上学历，硕士优先';
+ importDetail(db,preferred);
+ assert.equal(getJob(db,'master').eligible,false);
+ assert.equal(getJob(db,'doctor').eligible,false);
+ assert.equal(getJob(db,'jd-master').eligible,false);
+ assert.match(getJob(db,'master').block_reason,/学历硬性要求/);
+ assert.deepEqual(queryJobs(db,{candidates:true}).items.map(j=>j.job_id).sort(),['bachelor-alternative','bachelor-preferred']);
+ const latest=getJob(db,'master');
+ assert.throws(()=>decideAiJob(db,{jobId:'master',status:'WORTH',reason:'试图误纳入',expectedRevision:latest.revision,expectedSourceHash:latest.decision_basis.hash}),/ADVANCED_DEGREE_EXCLUDED/);
+ assert.throws(()=>claimGreet(db,{jobId:'master',actionId:'master-send'}),/GREET_BLOCKED/);
+ const pass=decideAiJob(db,{jobId:'master',status:'PASS',reason:'用户确认硕士及以上硬排除',expectedRevision:latest.revision,expectedSourceHash:latest.decision_basis.hash});
+ assert.equal(pass.screening_status,'PASS');
+ assert.equal(queryJobs(db,{candidates:true}).total,2);
 });
 test('education chart always covers all collected jobs instead of only WORTH',t=>{
  const db=setup(t,[]);
@@ -106,7 +137,7 @@ test('v4 database migrates company ID from both original List and Detail JSON',(
   const d:any=detail('b',{brandComInfo:{encryptBrandId:'brand-two'}});importDetail(db,d);
   db.exec('ALTER TABLE jobs DROP COLUMN brand_id; PRAGMA user_version=4;');
   db.close();db=openJobsDatabase(path);
-  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version,6);
+  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version,7);
   assert.equal(getJob(db,'a').brand_id,'brand-one');assert.equal(getJob(db,'b').brand_id,'brand-two');
   db.close();
  }finally{rmSync(dir,{recursive:true,force:true});}
@@ -323,7 +354,7 @@ test('v2 SQLite is upgraded in place without clearing decisions or successful Gr
   let db=openJobsDatabase(p);importList(db,list('a'));worth(db);importGreet(db,greet());
   db.exec('DROP TABLE list_responses; ALTER TABLE jobs DROP COLUMN communicated_at; ALTER TABLE jobs DROP COLUMN ai_summary_json; ALTER TABLE jobs DROP COLUMN ai_summary_source_hash; ALTER TABLE jobs DROP COLUMN ai_summary_at; ALTER TABLE jobs DROP COLUMN brand_id; PRAGMA user_version=2;');
   db.close();db=openJobsDatabase(p);
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version,6);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version,7);
   assert.equal(db.prepare('SELECT count(*) n FROM list_responses').get().n,0);
   assert.equal(getJob(db,'a').screening_status,'WORTH');
   assert.equal(getJob(db,'a').communicated_at,'2026-01-01T00:00:01.000Z');
@@ -336,7 +367,7 @@ test('v3 SQLite upgrades AI summary columns in place without changing past decis
   let db=openJobsDatabase(path);importList(db,list('a'));worth(db);
   db.exec('ALTER TABLE jobs DROP COLUMN ai_summary_json; ALTER TABLE jobs DROP COLUMN ai_summary_source_hash; ALTER TABLE jobs DROP COLUMN ai_summary_at; ALTER TABLE jobs DROP COLUMN brand_id; PRAGMA user_version=3;');
   db.close();db=openJobsDatabase(path);
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version,6);
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version,7);
   assert.equal(getJob(db,'a').screening_status,'WORTH');
   assert.equal(getJob(db,'a').ai_summary_status,'NO_DETAIL');
   db.close();
@@ -394,7 +425,7 @@ test('existing source file restores omitted raw fields without changing decision
 });
 test('CLI uses the new stable decision/query contract and safe JSON errors',()=>{
  const dir=mkdtempSync(join(tmpdir(),'jobs-cli-')),path=join(dir,'jobs.sqlite'),file=join(dir,'list.json'),run=(...args:string[])=>spawnSync(process.execPath,['app/server/job-cli.ts',...args],{encoding:'utf8',env:{...process.env,BOSS_JOBS_DB_PATH:path}});
- try{writeFileSync(file,JSON.stringify(list('synthetic-cli')));assert.equal(JSON.parse(run('init').stdout).result.version,6);assert.equal(JSON.parse(run('import-list',file).stdout).result.added,1);assert.equal(JSON.parse(run('query','{"status":"PENDING"}').stdout).result.total,1);
+ try{writeFileSync(file,JSON.stringify(list('synthetic-cli')));assert.equal(JSON.parse(run('init').stdout).result.version,7);assert.equal(JSON.parse(run('import-list',file).stdout).result.added,1);assert.equal(JSON.parse(run('query','{"status":"PENDING"}').stdout).result.total,1);
  const bad=run('decide','{"jobId":"synthetic-cli","status":"PASS"}');assert.equal(bad.status,1);assert.equal(JSON.parse(bad.stderr).error,'DECISION_REASON_REQUIRED');writeFileSync(file,'invalid');assert.equal(JSON.parse(run('import-list',file).stderr).error,'INVALID_JSON');}finally{rmSync(dir,{recursive:true,force:true});}
 });
 

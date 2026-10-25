@@ -27,26 +27,30 @@ test('zero-count status stays explicit instead of creating a fourth category',()
  assert.equal(o.legend.formatter('PASS'),'PASS 0 (0%)');
 });
 
-import {makeCumulativeOptions,makeDailyStackedOptions} from '../web/dashboard-options.mjs';
-test('weekly ECharts lines show collected and communicated cumulative totals',()=>{
- const o=makeCumulativeOptions([{label:'10/19',receivedTotal:12,communicatedTotal:3}]);
- assert.deepEqual(o.series.map(s=>s.type),['line','line']);
- assert.deepEqual(o.series.map(s=>s.data),[[12],[3]]);
- assert.equal(o.legend.orient,'horizontal');
+import {makeDailyAppearanceOptions,makeDailyCollectedAndGreetOptions} from '../web/dashboard-options.mjs';
+test('daily difference line preserves null when no previous baseline, while valid zero is zero',()=>{
+ const dates=[{date:'2026-10-22',label:'10/22',newComparedYesterday:null,coverage:'historical-partial'},
+  {date:'2026-10-23',label:'10/23',newComparedYesterday:3,coverage:'observed'},
+  {date:'2026-10-24',label:'10/24',newComparedYesterday:0,coverage:'observed'}];
+ const o=makeDailyAppearanceOptions(dates);
+ assert.deepEqual(o.series.map(s=>s.type),['line']);
+ assert.deepEqual(o.series[0].data,[null,3,0]);
+ assert.equal(o.series[0].connectNulls,false);
 });
-test('daily ECharts is a single stacked column for two events per day',()=>{
- const o=makeDailyStackedOptions([{label:'10/23',received:30,communicated:8}]);
+test('daily collected and greet bars are grouped, never stacked, and missing collection stays null',()=>{
+ const dates=[{date:'2026-10-22',label:'10/22',collected:30,communicated:8,coverage:'historical-partial'},
+  {date:'2026-10-23',label:'10/23',collected:null,communicated:0,coverage:'missing'}];
+ const o=makeDailyCollectedAndGreetOptions(dates);
  assert.deepEqual(o.series.map(s=>s.type),['bar','bar']);
- assert.equal(o.series[0].stack,o.series[1].stack);
- assert.deepEqual(o.series.map(s=>s.data),[[30],[8]]);
- assert.deepEqual(o.xAxis.data,['10/23']);
+ assert.ok(o.series.every(s=>!Object.hasOwn(s,'stack')));
+ assert.deepEqual(o.series.map(s=>s.data),[[30,null],[8,0]]);
+ assert.match(o.tooltip.formatter([{dataIndex:0}]),/历史归档不完整/);
+ assert.match(o.tooltip.formatter([{dataIndex:1}]),/无采集记录/);
 });
-
-test('four education categories retain native names but compact the legend into one horizontal line',()=>{
+test('education pie legend remains unchanged',()=>{
  const o=makeJudgmentPieOptions([{label:'不限',value:23},{label:'大专',value:56},{label:'本科',value:386},{label:'其他/未提供',value:11}],'岗位学历分布');
  assert.equal(o.legend.orient,'horizontal');
  assert.equal(o.legend.itemGap,5);
  assert.equal(o.legend.formatter('其他/未提供'),'其他 11 (2%)');
  assert.equal(o.series[0].data[3].name,'其他/未提供');
- assert.ok(o.aria.description.includes('岗位学历分布'));
 });

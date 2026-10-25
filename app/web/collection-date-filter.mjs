@@ -5,7 +5,7 @@ export const todayInShanghai=(now=new Date())=>new Intl.DateTimeFormat('sv-SE',{
 const previousDate=(date,n)=>new Date(Date.parse(date+'T00:00:00.000Z')-n*86400000).toISOString().slice(0,10);
 const validDate=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&
  Number.isFinite(Date.parse(value+'T00:00:00.000Z'))&&new Date(value+'T00:00:00.000Z').toISOString().slice(0,10)===value;
-export function collectionDateRange(mode='last1',customRange=null,now=new Date()){
+export function collectionDateRange(mode='last3',customRange=null,now=new Date()){
  const today=todayInShanghai(now);
  if(mode==='last1')return{collectedFrom:today,collectedTo:today};
  if(mode==='last3')return{collectedFrom:previousDate(today,2),collectedTo:today};

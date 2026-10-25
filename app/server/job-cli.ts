@@ -2,7 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { openJobsDatabase, readJobFile, importList, decideJob, importDetail, importGreet, claimGreet, queryJobs, getJobDetail, restoreRawSources,restoreRawReceipts,importAiSummaries,decideAiJob,importApplication,getJobEvents,checkGreetBeforeSend } from '../db/ingestion/job-store.ts';
 
 export function runJobCommand(db: any, command: string, argument?: string, expectedJobId?: string) {
-  if (command==='init') return {version:6,tables:['jobs','job_details','list_responses','job_events']};
+  if (command==='init') return {version:7,tables:['jobs','job_details','list_responses','job_events','job_daily_observations','job_daily_batches']};
   if (command==='restore-sources') return restoreRawSources(db);
   if (command==='restore-receipts') return restoreRawReceipts(db);
   if (command==='import-ai-summaries') {if(!argument) throw new Error('INPUT_FILE_REQUIRED');return importAiSummaries(db,readJobFile(argument).payload);}

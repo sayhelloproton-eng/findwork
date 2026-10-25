@@ -16,7 +16,7 @@ test('HTTP exposes four decisions, binary communication, keyword and location fi
  for(const status of ['PENDING','WORTH','PASS'])assert.ok((await get(base,'/api/jobs?status='+status)).items.every((j:any)=>status==='PENDING'?['PENDING','NEED_DETAIL'].includes(j.screening_status):j.screening_status===status));
  assert.equal((await get(base,'/api/jobs?communicated=true')).total,1);assert.ok((await get(base,'/api/jobs?location=徐汇')).items.every((j:any)=>j.facts.district==='徐汇区'));
  assert.equal((await fetch(base+'/api/jobs?limit=abc')).status,400);assert.equal((await fetch(base+'/api/jobs/missing')).status,404);
- const html=await fetch(base).then(r=>r.text());assert.match(html,/岗位工作台/);assert.match(html,/antd-entry\.js/);assert.equal((await fetch(base+'/db/boss-jobs.sql')).status,404);
+ const html=await fetch(base).then(r=>r.text());assert.match(html,/岗位工作台/);assert.match(html,/type=\"module\"/);assert.match(html,/\/assets\/index-[^\"]+\.js/);assert.equal((await fetch(base+'/db/boss-jobs.sql')).status,404);
 });
 test('AI decision POST requires current source hash, preserves decisions and refuses stale edits',async t=>{
  const{base}=await launch(t);const row=(await get(base,'/api/jobs?status=PASS')).items[0];const path='/api/jobs/'+row.job_id+'/decision';
@@ -57,9 +57,9 @@ test('independent formal application needs proof, not Greet',async t=>{
  actionId:'synthetic-application-'+row.job_id,finishedAt:'2026-10-23T04:00:00Z',
  result:'SUCCESS',confirmed:true,receipt:{kind:'SYNTHETIC_TEST'}};
  const send=(body:any)=>fetch(base+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
- assert.equal((await send({...receipt,confirmed:false})).status,400);
- assert.equal((await send(receipt)).status,200);
+ assert.equal((await send({...receipt,confirmed:false})).status,405);
+ assert.equal((await send(receipt)).status,405);
  const updated=(await get(base,'/api/jobs/'+row.job_id)).job;
- assert.equal(updated.application_state,'SUCCEEDED');
+ assert.equal(updated.application_state,'NONE');
  assert.equal(updated.communication_state,row.communication_state);
 });

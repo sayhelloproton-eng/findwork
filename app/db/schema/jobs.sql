@@ -57,4 +57,15 @@ CREATE TABLE job_events (
   event_key TEXT NOT NULL UNIQUE
 );
 CREATE INDEX job_events_time ON job_events(occurred_at,event_type);
-PRAGMA user_version=6;
+CREATE TABLE job_daily_observations (
+ local_day TEXT NOT NULL CHECK(length(local_day)=10),scope TEXT NOT NULL,
+ job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+ PRIMARY KEY(local_day,scope,job_id)) STRICT;
+CREATE INDEX job_daily_observations_job ON job_daily_observations(job_id,local_day);
+CREATE TABLE job_daily_batches (
+ local_day TEXT NOT NULL CHECK(length(local_day)=10),scope TEXT NOT NULL,
+ source_hash TEXT NOT NULL,first_imported_at TEXT NOT NULL,
+ historical INTEGER NOT NULL CHECK(historical IN (0,1)),
+ PRIMARY KEY(local_day,scope,source_hash)) STRICT;
+CREATE INDEX job_daily_batches_day ON job_daily_batches(local_day,scope);
+PRAGMA user_version=7;

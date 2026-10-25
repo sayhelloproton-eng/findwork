@@ -1,7 +1,11 @@
+import './echarts-entry.mjs';
 import React,{useCallback,useEffect,useRef,useState} from 'react';
 import {makeJudgmentPieOptions} from './judgment-pie-options.mjs';
 import {describeDecision} from './decision-display.mjs';
-import {makeCumulativeOptions,makeDailyStackedOptions} from './dashboard-options.mjs';
+import {bossRecruitmentBadges} from './boss-recruitment-badges.mjs';
+import Communications from './communications.jsx';
+import {Layout,Menu} from 'antd';
+import {makeDailyAppearanceOptions,makeDailyCollectedAndGreetOptions} from './dashboard-options.mjs';
 import {createRoot} from 'react-dom/client';
 import {Alert,Button,Card,Col,ConfigProvider,DatePicker,Empty,Form,Pagination,Radio,Row,Select,Space,Spin,Table,Tag,Tooltip,Popover,Typography} from 'antd';
 import zhCN from 'antd/locale/zh_CN';
@@ -15,7 +19,7 @@ const commOptions=[{label:'全部',value:''},{label:'已沟通',value:'true'},{l
 const educationOptions=[{label:'全部',value:''},{label:'不限',value:'不限'},{label:'大专',value:'大专'},{label:'本科',value:'本科'},{label:'其他',value:'其他'}];
 const sortOptions=[{label:'采集时间',value:'collected'},{label:'更新时间',value:'updated'}];
 const dateModes=[{label:'最近一天',value:'last1'},{label:'最近三天',value:'last3'},{label:'最近七天',value:'last7'},{label:'自定义日期范围',value:'custom'}];
-const defaultFilters={status:'',communicated:'',education:'',brandId:'',location:'',sort:'collected',dateMode:'last1',customRange:[dayjs(todayInShanghai()),dayjs(todayInShanghai())]};
+const defaultFilters={status:'',communicated:'',education:'',brandId:'',location:'',sort:'collected',dateMode:'last3',customRange:[dayjs(todayInShanghai()),dayjs(todayInShanghai())]};
 const display=v=>v==null||v===''?'未提供':String(v);
 const joined=(...items)=>items.filter(Boolean).join(' · ');
 async function api(url,options){
@@ -82,25 +86,15 @@ function SkillsAndBenefits({job:j}){
   </Space></div>}
  </div>;
 }
-// Mapped against live BOSS DOM img.job-tag-icon alt labels captured on 2026-10-23.
-const nativeBadgeFromIcon=url=>{
- if(typeof url!=='string')return null;
- if(url.includes('/6zb0e7e8qm1655206107975.png'))return '派遣';
- if(url.includes('/cy4fi6cada1655206055291.png'))return '猎头';
- if(url.includes('/4or9x2qcfv1699943576247.png'))return '急聘';
- return null;
-};
 function JobFlags({job:j}){
- const f=j.facts||{},list=j.list||{};
- const imgBadges=[...new Set((Array.isArray(list.beforeNameIcons)?list.beforeNameIcons:[]).map(nativeBadgeFromIcon).filter(Boolean))];
- const isHunter=imgBadges.includes('猎头')||list.goldHunter===1;
- const isDispatch=imgBadges.includes('派遣');
+ const f=j.facts||{},list=j.list||{},badges=bossRecruitmentBadges(list);
  return <div className="job-flags">
   {f.closed&&<Tag className="closed-signal" color="error" bordered={false}>已关闭</Tag>}
-  {isHunter&&<Tooltip title="原生猎头图标或 goldHunter=1"><Tag className="source-signal">猎头</Tag></Tooltip>}
-  {isDispatch&&<Tooltip title="BOSS 原生职位卡片图标明确标注派遣"><Tag className="dispatch-signal">派遣</Tag></Tooltip>}
-  {list.proxyJob===1&&!isDispatch&&!isHunter&&<Tooltip title={'原生 proxyJob=1，proxyType='+String(list.proxyType)+'；尚不能证明等同于派遣'}><Tag className="source-signal">{list.proxyType===4?'代理·类型4':'代理'}</Tag></Tooltip>}
-  {imgBadges.includes('急聘')&&<Tag className="urgent-signal">急聘</Tag>}
+  {badges.hunter&&<Tooltip title="BOSS 原生猎头图标或 goldHunter=1"><Tag className="source-signal">猎头</Tag></Tooltip>}
+  {badges.dispatch&&<Tooltip title="BOSS 原生职位卡片图标明确标注派遣"><Tag className="dispatch-signal">派遣</Tag></Tooltip>}
+  {badges.delegated&&<Tooltip title="BOSS 原生职位卡片图标明确标注代招；不能仅凭 proxyType 猜测"><Tag className="dispatch-signal">代招</Tag></Tooltip>}
+  {badges.proxyUnverified&&<Tooltip title={'原生 proxyJob=1，proxyType='+String(list.proxyType)+'；尚不能直接确认为猎头、派遣或代招'}><Tag className="source-signal">{list.proxyType===4?'代理·类型4':'代理'}</Tag></Tooltip>}
+  {badges.urgent&&<Tag className="urgent-signal">急聘</Tag>}
   {Number.isInteger(list.anonymous)&&list.anonymous!==0&&<Tooltip title={'原生 anonymous='+list.anonymous+'，具体编码含义待核实'}><Tag className="source-signal">匿名码{list.anonymous}</Tag></Tooltip>}
   {list.atsDirectPost===true&&<Tag className="source-signal">支持ATS直投</Tag>}
   {typeof list.optimal==='number'&&list.optimal!==0&&<Tag className="source-signal">优选码{list.optimal}</Tag>}
@@ -143,10 +137,10 @@ function EChartCanvas({options,dataKey,ariaLabel,className='trend-echart',center
  </div>;
 }
 function TrendChart({data,mode}){
- const rows=mode==='cumulative'?data.weeks:data.days;
- const options=mode==='cumulative'?makeCumulativeOptions(rows):makeDailyStackedOptions(rows);
+ const rows=data.days||[];
+ const options=mode==='new-appearances'?makeDailyAppearanceOptions(rows):makeDailyCollectedAndGreetOptions(rows);
  return <EChartCanvas options={options} dataKey={mode+'|'+JSON.stringify(rows)}
-  ariaLabel={mode==='cumulative'?'近三个月每周累计收录与累计沟通':'最近十四天每日新增收录与已沟通堆叠图'}/>;
+  ariaLabel={mode==='new-appearances'?'最近十四天较前一天新出现岗位趋势，缺失基线不补零':'最近十四天每日收录与沟通分组柱状图'}/>;
 }
 function DonutCard({title,subtitle,entries,help}){
  const total=entries.reduce((n,e)=>n+Math.max(0,Number(e.value)||0),0);
@@ -174,13 +168,14 @@ function JobDashboard({data}){
  const degree=data.education||{},decisions=data.judgment||{};
  return <section className="dashboard-row" aria-label="岗位分析大盘">
   <div className="dashboard-panel trend-panel">
-   <div className="dashboard-panel-title">累计收录与沟通</div>
-   <div className="dashboard-subtitle">最近三个月 · 每周累计</div>
-   <TrendChart data={data} mode="cumulative"/>
+   <div className="dashboard-panel-title">每日新出现岗位趋势</div>
+   <div className="dashboard-subtitle">{(data.days||[]).some(d=>d.newComparedYesterday!==null)?
+    '最近14天 · 较前一天新出现':'暂无可比前日基线 · 后续连续采集自动生成'}</div>
+   <TrendChart data={data} mode="new-appearances"/>
   </div>
   <div className="dashboard-panel trend-panel">
-   <div className="dashboard-panel-title">每日新增与沟通</div>
-   <div className="dashboard-subtitle">最近14天 · 每日堆叠</div>
+   <div className="dashboard-panel-title">每日收录与沟通</div>
+   <div className="dashboard-subtitle">最近14天 · 收录去重 / 成功沟通</div>
    <TrendChart data={data} mode="daily"/>
   </div>
   <DonutCard title="岗位学历分布" subtitle="全部收录岗位 · 学历要求" entries={[
@@ -258,7 +253,13 @@ function Worktable(){
   api('/api/jobs/'+encodeURIComponent(expandedId),{signal:controller.signal}).then(data=>{if(!controller.signal.aborted)setDetail(data);}).catch(e=>{if(!controller.signal.aborted)setError(e.message);}).finally(()=>{if(!controller.signal.aborted)setDetailLoading(false);});
   return()=>controller.abort();
  },[expandedId]);
- useEffect(()=>{let live=true;api('/api/dashboard').then(data=>{if(live)setDashboard(data);}).catch(e=>{if(live)setError(e.message);});return()=>{live=false;};},[]);
+ useEffect(()=>{let live=true;
+  const refresh=()=>{if(document.hidden)return;api('/api/dashboard')
+   .then(data=>{if(live)setDashboard(data);}).catch(e=>{if(live)setError(e.message);});};
+  refresh();const timer=setInterval(refresh,30000);
+  document.addEventListener('visibilitychange',refresh);
+  return()=>{live=false;clearInterval(timer);document.removeEventListener('visibilitychange',refresh);};
+ },[]);
  const applyFilters=values=>{
   setFilters({...defaultFilters,...values});setPage(1);setExpandedId(null);
  };
@@ -334,9 +335,22 @@ function Worktable(){
  </main>;
 }
 const nonce=document.querySelector('meta[name="antd-style-nonce"]')?.getAttribute('content');
+function FindworkApp(){
+ const isCommunication=location.pathname==='/communications';
+ return <Layout className="application-layout">
+  <Layout.Sider width={188} theme="light" className="application-sider">
+   <div className="application-brand">Findwork</div>
+   <Menu mode="inline" selectedKeys={[isCommunication?'communications':'jobs']} items={[
+    {key:'jobs',label:<a href="/">岗位工作台</a>},
+    {key:'communications',label:<a href="/communications">沟通工作台</a>}
+   ]}/>
+  </Layout.Sider>
+  <Layout.Content className="application-main">{isCommunication?<Communications/>:<Worktable/>}</Layout.Content>
+ </Layout>;
+}
 createRoot(document.getElementById('root')).render(
  <ConfigProvider locale={zhCN} componentSize="small" csp={nonce?{nonce}:undefined}
   theme={{token:{colorPrimary:'#2167b5',borderRadius:7,fontSize:13,colorBgLayout:'#f5f7fb',colorText:'#23354b'},components:{Table:{cellPaddingBlockSM:7,cellPaddingInlineSM:9,headerBg:'#f2f5f9'},Card:{bodyPaddingSM:12}}}}>
-  <Worktable/>
+  <FindworkApp/>
  </ConfigProvider>
 );

@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import {todayInShanghai,collectionDateRange} from '../web/collection-date-filter.mjs';
 
 const shanghaiMidnight=new Date('2026-10-23T17:25:00Z'); // 2026-10-24 01:25 Asia/Shanghai
-test('last one calendar day is the default, based on Shanghai local date',()=>{
+test('last three calendar days are the default, based on Shanghai local date',()=>{
  assert.equal(todayInShanghai(shanghaiMidnight),'2026-10-24');
- assert.deepEqual(collectionDateRange(undefined,undefined,shanghaiMidnight),{collectedFrom:'2026-10-24',collectedTo:'2026-10-24'});
+ assert.deepEqual(collectionDateRange(undefined,undefined,shanghaiMidnight),{collectedFrom:'2026-10-22',collectedTo:'2026-10-24'});
  assert.deepEqual(collectionDateRange('last1',['2026-01-01','2026-01-02'],shanghaiMidnight),{collectedFrom:'2026-10-24',collectedTo:'2026-10-24'});
+ assert.deepEqual(collectionDateRange('last3',['2026-01-01','2026-01-02'],shanghaiMidnight),{collectedFrom:'2026-10-22',collectedTo:'2026-10-24'});
 });
 test('one, three, seven calendar-day presets are inclusive and ignore saved custom range',()=>{
  const expected={

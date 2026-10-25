@@ -16,3 +16,8 @@ BOSS 技术演进及成功/失败方案详见 platforms/boss/extension/docs/DESI
 
 
 2026-10-24：列表增加以采集日期为口径的独立筛选。按 jobs.last_seen_at 的北京时间自然日筛选，支持指定日期、最近一天（今天）、最近三天（今天及前两天）；默认为今天，重置回到今天。该筛选与原有采集时间/更新时间排序相互独立，不改变四张整体大盘的数据范围。
+
+
+2026-10-25：v7 引入每日岗位观测表 job_daily_observations(local_day,scope,job_id) 与归档批次表 job_daily_batches。每次成功 List 导入记录北京时间当天按 jobId 去重的岗位，重复接口响应当天只算一次，跨天仍算各天收录。BOSS 响应只有 zpData.type 可验证作为稳定的范围维度；前后日期该类型集合不匹配不计算差集。旧 list_responses 的 imported_at 只能证明首度归档，回填值明确标记 historical-partial，不能冒充完整每日采集记录；无记录日为 null 不是 0。折线图按两个相邻的、非历史的、同范围日期计算今天集合减昨天集合；另一张分组柱状图分别表示每日去重收录量和真实沟通成功（greet_confirmed_at 的北京时间日期）；不堆叠、互不代表包含关系。学历与决策图不变。
+
+2026-10-25 审计修复：UI DTO 仅提供展示字段，不再直接暴露 BOSS action credentials、原始 JSON、私有来源路径；跨页选择复制前重新验证候选。简历正式 SUCCESS 禁止浏览器直接 POST，只能由本地 CLI 根据下载原文件和哈希证据导入。每日观测缺 hash-verified 捕获时间及明确求职期望/查询指纹则标记 historical-partial、不参与两日新增差集；已核对原始文件且范围明确时按捕获自然日归档。图表前端每30秒重新获取一次（页面可见时）。

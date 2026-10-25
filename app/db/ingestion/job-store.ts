@@ -2,11 +2,14 @@ import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, readFileSync, chmodSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
+import {advancedDegreeExclusion} from './education-exclusion.mjs';
 
 export const DEFAULT_JOBS_DB=resolve(import.meta.dirname,'../runtime/jobs.sqlite');
 const schema=readFileSync(resolve(import.meta.dirname,'../schema/jobs.sql'),'utf8');
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 const now=()=>new Date().toISOString();
+const localDay=(stamp:string)=>new Date(Date.parse(stamp)+8*3600000).toISOString().slice(0,10);
+const listScope=(zp:any)=>'boss:type:'+(typeof zp?.type==='string'||Number.isInteger(zp?.type)?String(zp.type):'unspecified');
 const fail=(code:string):never=>{throw new Error(code);};
 const object=(v:any)=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const text=(v:any)=>typeof v==='string'?v:null;
@@ -41,6 +44,8 @@ export function openJobsDatabase(path=process.env.FINDWORK_DB_PATH||process.env.
   try{
     db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000');
     db.function('job_sha256',{deterministic:true},(value:any)=>value==null?null:hash(String(value)));
+    db.function('job_degree_hard_exclude',{deterministic:true},(listDegree:any,detailDegree:any,jd:any)=>
+      advancedDegreeExclusion(listDegree,detailDegree,jd).excluded?1:0);
     transaction(db,()=>{
       const tables=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map((r:any)=>r.name);
       const version=(db.prepare('PRAGMA user_version').get() as any).user_version;
@@ -49,10 +54,11 @@ export function openJobsDatabase(path=process.env.FINDWORK_DB_PATH||process.env.
         db.exec(`ALTER TABLE jobs ADD COLUMN communicated_at TEXT GENERATED ALWAYS AS (CASE WHEN communication_state='SUCCEEDED' THEN greet_confirmed_at ELSE NULL END) VIRTUAL;
 CREATE TABLE list_responses (source_hash TEXT PRIMARY KEY NOT NULL,response_json TEXT NOT NULL CHECK(json_valid(response_json)),source TEXT,imported_at TEXT NOT NULL) STRICT;
 PRAGMA user_version=3;`);
-      }else if(![3,4,5,6].includes(version))fail('NOT_BOSS_JOBS_DATABASE');
+      }else if(![3,4,5,6,7].includes(version))fail('NOT_BOSS_JOBS_DATABASE');
       const actual=(db.prepare('PRAGMA user_version').get() as any).user_version;
       const names=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map((r:any)=>r.name);
-      if(![['job_details','jobs','list_responses'],['job_details','job_events','jobs','list_responses']].some(v=>JSON.stringify(v)===JSON.stringify(names))||
+      if(![['job_details','jobs','list_responses'],['job_details','job_events','jobs','list_responses'],
+        ['job_daily_batches','job_daily_observations','job_details','job_events','jobs','list_responses']].some(v=>JSON.stringify(v)===JSON.stringify(names))||
         !db.prepare('PRAGMA table_xinfo(jobs)').all().some((r:any)=>r.name==='communicated_at'))fail('NOT_BOSS_JOBS_DATABASE');
       if(actual===3)db.exec([
         'ALTER TABLE jobs ADD COLUMN ai_summary_json TEXT CHECK(ai_summary_json IS NULL OR json_valid(ai_summary_json));',
@@ -76,9 +82,25 @@ PRAGMA user_version=3;`);
           db.exec('ALTER TABLE job_details ADD COLUMN raw_envelope_json TEXT CHECK(raw_envelope_json IS NULL OR json_valid(raw_envelope_json))');
         db.exec("CREATE TABLE IF NOT EXISTS job_events (event_id INTEGER PRIMARY KEY AUTOINCREMENT,job_id TEXT NOT NULL REFERENCES jobs(job_id),event_type TEXT NOT NULL,old_state TEXT,new_state TEXT,source_hash TEXT,occurred_at TEXT NOT NULL,event_key TEXT NOT NULL UNIQUE); CREATE INDEX IF NOT EXISTS job_events_time ON job_events(occurred_at,event_type); PRAGMA user_version=6;");
       }
+      if((db.prepare('PRAGMA user_version').get() as any).user_version===6){
+        db.exec([
+         'CREATE TABLE IF NOT EXISTS job_daily_observations (local_day TEXT NOT NULL CHECK(length(local_day)=10),scope TEXT NOT NULL,job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,PRIMARY KEY(local_day,scope,job_id)) STRICT;',
+         'CREATE INDEX IF NOT EXISTS job_daily_observations_job ON job_daily_observations(job_id,local_day);',
+         'CREATE TABLE IF NOT EXISTS job_daily_batches (local_day TEXT NOT NULL CHECK(length(local_day)=10),scope TEXT NOT NULL,source_hash TEXT NOT NULL,first_imported_at TEXT NOT NULL,historical INTEGER NOT NULL CHECK(historical IN (0,1)),PRIMARY KEY(local_day,scope,source_hash)) STRICT;',
+         'CREATE INDEX IF NOT EXISTS job_daily_batches_day ON job_daily_batches(local_day,scope);'
+        ].join(' '));
+        // Older source_hash archive only preserves first import, not repeated identical imports.
+        for(const row of db.prepare('SELECT source_hash,response_json,imported_at FROM list_responses ORDER BY imported_at').all() as any[]){
+          let raw:any;try{raw=unwrap(JSON.parse(row.response_json));}catch{continue;}
+          if(raw?.code!==0||!Array.isArray(raw?.zpData?.jobList))continue;
+          recordDailyBatch(db,raw.zpData,row.source_hash,row.imported_at,true);
+        }
+        db.exec('PRAGMA user_version=7;');
+      }
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS jobs_application_action_id ON jobs(application_action_id) WHERE application_action_id IS NOT NULL;');
-      if((db.prepare('PRAGMA user_version').get() as any).user_version!==6||
-        !['ai_summary_json','brand_id','screening_basis_hash','application_state','greet_raw_json'].every(x=>db.prepare('PRAGMA table_xinfo(jobs)').all().some((r:any)=>r.name===x)))fail('NOT_BOSS_JOBS_DATABASE');
+      if((db.prepare('PRAGMA user_version').get() as any).user_version!==7||
+        !['ai_summary_json','brand_id','screening_basis_hash','application_state','greet_raw_json'].every(x=>db.prepare('PRAGMA table_xinfo(jobs)').all().some((r:any)=>r.name===x))||
+        !['job_daily_batches','job_daily_observations'].every(x=>db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(x)))fail('NOT_BOSS_JOBS_DATABASE');
     });
     if(path!==':memory:')chmodSync(path,0o600);
     return db;
@@ -114,9 +136,35 @@ function addSignals(db:any,jobId:string,signals:string[]){
   if(after.length===before.length)return;
   db.prepare('UPDATE jobs SET history_blocked=1,history_signals=?,updated_at=? WHERE job_id=?').run(JSON.stringify(after),now(),jobId);
 }
+function recordDailyBatch(db:any,zp:any,sourceHash:string,at:string,historical:boolean,scopeOverride:string|null=null){
+ const day=localDay(at),scope=scopeOverride||listScope(zp);
+ db.prepare('INSERT OR IGNORE INTO job_daily_batches(local_day,scope,source_hash,first_imported_at,historical) VALUES(?,?,?,?,?)')
+  .run(day,scope,sourceHash,at,historical?1:0);
+ const insert=db.prepare('INSERT OR IGNORE INTO job_daily_observations(local_day,scope,job_id) VALUES(?,?,?)');
+ const exists=db.prepare('SELECT 1 FROM jobs WHERE job_id=?');
+ for(const entry of zp.jobList){
+  const key=entry?.encryptJobId;
+  if(typeof key==='string'&&key.trim()&&key.length<=256&&
+   typeof entry.jobName==='string'&&entry.jobName.trim()&&exists.get(key))
+   insert.run(day,scope,key);
+ }
+}
 export function importList(db:any,payload:any,evidence:any={}){
   const raw=unwrap(payload);if(raw?.code!==0||!Array.isArray(raw?.zpData?.jobList))fail('NOT_LIST_RESPONSE');
   const stamp=now(),source=evidenceFor(payload,evidence),result={read:raw.zpData.jobList.length,added:0,existing:0,updated:0,invalid:0};
+  // Captured-day observations are comparable only with hash-verified original
+  // evidence containing capture timestamp AND exact expectation/query scope.
+  let verified=false;
+  if(source.source){try{verified=readJobFile(source.source).evidence.sourceHash===source.sourceHash;}catch{verified=false;}}
+  const captured=payload?.capturedAt??payload?.observedAt;
+  const captureOk=typeof captured==='string'&&/^\d{4}-\d\d-\d\dT/.test(captured)&&
+   Number.isFinite(Date.parse(captured))&&Date.parse(captured)<=Date.parse(stamp)+60000;
+  const scope=payload?.collectionScope;
+  const scopeOk=object(scope)&&Number.isInteger(scope.expectIndex)&&scope.expectIndex>=0&&scope.expectIndex<=100&&
+   typeof scope.queryFingerprint==='string'&&/^[A-Za-z0-9_-]{8,128}$/.test(scope.queryFingerprint);
+  const comparable=verified&&captureOk&&scopeOk;
+  const observedTime=comparable?new Date(captured).toISOString():stamp;
+  const observedScope=comparable?listScope(raw.zpData)+'|expect:'+scope.expectIndex+'|query:'+scope.queryFingerprint:null;
   return transaction(db,()=>{
     db.prepare('INSERT OR IGNORE INTO list_responses(source_hash,response_json,source,imported_at) VALUES(?,?,?,?)')
       .run(source.sourceHash,JSON.stringify(payload),source.source,stamp);
@@ -146,6 +194,8 @@ export function importList(db:any,payload:any,evidence:any={}){
       }
       if(entry.contact===true)addSignals(db,jobId,['LIST_CONTACT']);
     }
+    // Record daily observations even when a source hash was imported on a prior day.
+    recordDailyBatch(db,raw.zpData,source.sourceHash,observedTime,!comparable,observedScope);
     return result;
   });
 }
@@ -261,6 +311,8 @@ function present(row:any){
     job_status_desc:row.job_status_desc,closed:row.invalid_status===1||/已关闭|停止招聘/.test(row.job_status_desc??''),
     gold_hunter:list.goldHunter??null,proxy_job:list.proxyJob??null,proxy_type:list.proxyType??null,job_type:list.jobType??null,
     least_month_desc:nonempty(list.leastMonthDesc),days_per_week_desc:nonempty(list.daysPerWeekDesc),jd_text:row.jd_text??null,sources});
+  const degreeExclusion=advancedDegreeExclusion(row.education,info.degreeName,row.jd_text);
+  facts.advanced_degree_excluded=degreeExclusion.excluded;
   const jdHash=row.jd_text?hash(row.jd_text):null;
   const ai_summary_status=!jdHash?'NO_DETAIL':!row.ai_summary_json?'PENDING':row.ai_summary_source_hash===jdHash?'READY':'STALE';
   const ai_summary=ai_summary_status==='READY'?JSON.parse(row.ai_summary_json):null;
@@ -268,8 +320,8 @@ function present(row:any){
   const decision_stale=!!row.screening_basis_hash&&row.screening_basis_hash!==basis?.hash;
   const {ai_summary_json,...publicRow}=row;
   const eligible=row.screening_status==='WORTH'&&!decision_stale&&row.application_state==='NONE'&&
-    row.communication_state==='NONE'&&!row.history_blocked&&!facts.closed;
-  const blockReason=facts.closed?'职位已关闭':row.history_blocked?'已有关系或申请记录，请核验后再联系':row.communication_state==='SUCCEEDED'?'已确认沟通':row.communication_state!=='NONE'?'已有联系动作记录，请核验后再联系':null;
+    row.communication_state==='NONE'&&!row.history_blocked&&!facts.closed&&!degreeExclusion.excluded;
+  const blockReason=degreeExclusion.excluded?'学历硬性要求：硕士及以上':facts.closed?'职位已关闭':row.history_blocked?'已有关系或申请记录，请核验后再联系':row.communication_state==='SUCCEEDED'?'已确认沟通':row.communication_state!=='NONE'?'已有联系动作记录，请核验后再联系':null;
   return{...publicRow,decision_basis:getDecisionBasis({has_detail:!!detail,facts,list_hash:row.list_hash}),decision_stale,ai_summary,ai_summary_status,communicated:Boolean(row.communicated),has_detail:!!detail,list,history_signals:JSON.parse(row.history_signals),facts,eligible,block_reason:blockReason};
 }
 export function getJob(db:any,jobId:string){const row=db.prepare(`${joinSql} WHERE j.job_id=?`).get(id(jobId));if(!row)fail('JOB_NOT_FOUND');return present(row);}
@@ -282,6 +334,7 @@ export function decideJob(db:any,input:any){
     const old=getJob(db,jobId),status=input.status??old.screening_status;
     if(!['PENDING','NEED_DETAIL','WORTH','PASS'].includes(status))fail('INVALID_SCREENING_STATUS');
     if(status==='NEED_DETAIL'&&old.has_detail)fail('DETAIL_ALREADY_AVAILABLE');
+    if(status==='WORTH'&&old.facts.advanced_degree_excluded)fail('ADVANCED_DEGREE_EXCLUDED');
     if(input.expectedRevision!=null&&(!Number.isInteger(input.expectedRevision)||input.expectedRevision!==old.revision))fail('DECISION_CONFLICT');
     const basis=getDecisionBasis(old);
     if(input.expectedSourceHash!=null&&input.expectedSourceHash!==basis.hash)fail('DECISION_SOURCE_STALE');
@@ -328,7 +381,7 @@ export function claimGreet(db: any, input: any) {
   const jobId=id(input?.jobId), actionId=id(input?.actionId), stamp=now();
   return transaction(db,()=>{
     const job=getJob(db,jobId);
-    if(job.screening_status!=='WORTH'||job.decision_stale||job.facts.closed)fail('GREET_BLOCKED');
+    if(job.screening_status!=='WORTH'||job.decision_stale||job.facts.closed||job.facts.advanced_degree_excluded)fail('GREET_BLOCKED');
     if (job.action_id===actionId && job.communication_state==='IN_FLIGHT') return job;
     if (!job.eligible) fail('GREET_BLOCKED');
     if (db.prepare('SELECT 1 FROM jobs WHERE action_id=?').get(actionId)) fail('ACTION_ID_CONFLICT');
@@ -340,7 +393,7 @@ export function claimGreet(db: any, input: any) {
 // Claim does not authorize a send after a status change to PASS.
 export function checkGreetBeforeSend(db:any,input:any){
  const job=getJob(db,id(input?.jobId)),actionId=id(input?.actionId);
- if(job.screening_status!=='WORTH'||job.decision_stale||job.facts.closed||job.history_blocked||
+ if(job.screening_status!=='WORTH'||job.decision_stale||job.facts.closed||job.facts.advanced_degree_excluded||job.history_blocked||
    job.action_id!==actionId||job.communication_state!=='IN_FLIGHT'||job.application_state!=='NONE')fail('GREET_BLOCKED');
  return{jobId:job.job_id,actionId,allowed:true,revision:job.revision};
 }
@@ -407,7 +460,7 @@ export function queryJobs(db:any,input:any={}){
  for(const k of ['communicated','candidates','hasDetail','online'])if(input[k]!=null&&![true,false,'true','false'].includes(input[k]))fail('INVALID_QUERY');
  for(const k of ['q','location','brandId','education'])if(input[k]!=null&&typeof input[k]!=='string')fail('INVALID_QUERY');
  if(input.education!=null&&!['','不限','大专','本科','其他'].includes(input.education))fail('INVALID_EDUCATION');
- if(input.sort!=null&&!['collected','updated','recommended','recent','online'].includes(input.sort))fail('INVALID_QUERY');
+ if(input.sort!=null&&!['collected','updated','recommended','recent','online','candidate-education'].includes(input.sort))fail('INVALID_QUERY');
  for(const key of ['collectedFrom','collectedTo'])if(input[key]!=null){
   const value=input[key];
   if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value+'T00:00:00Z'))||new Date(value+'T00:00:00Z').toISOString().slice(0,10)!==value)fail('INVALID_COLLECTION_DATE');
@@ -419,7 +472,7 @@ export function queryJobs(db:any,input:any={}){
  const opened="(coalesce(d.invalid_status,0)<>1 AND coalesce(d.job_status_desc,'') NOT LIKE '%已关闭%' AND coalesce(d.job_status_desc,'') NOT LIKE '%停止招聘%')";
  const eligible="(j.screening_status='WORTH' AND j.communication_state='NONE' AND j.application_state='NONE' "+
   "AND (j.screening_basis_hash IS NULL OR j.screening_basis_hash=coalesce(job_sha256(d.jd_text),j.list_hash)) "+
-  "AND j.history_blocked=0 AND "+opened+")";
+  "AND j.history_blocked=0 AND job_degree_hard_exclude(j.education,json_extract(d.detail_json,'$.jobInfo.degreeName'),d.jd_text)=0 AND "+opened+")";
  const clauses=[],params:any[]=[];
  if(input.collectedFrom){clauses.push("date(j.last_seen_at,'+8 hours')>=?");params.push(input.collectedFrom);}
  if(input.collectedTo){clauses.push("date(j.last_seen_at,'+8 hours')<=?");params.push(input.collectedTo);}
@@ -450,7 +503,16 @@ export function queryJobs(db:any,input:any={}){
  const where=clauses.length?' WHERE '+clauses.join(' AND '):'';
  const total=(db.prepare('SELECT count(*) n'+join+where).get(...params) as any).n;
  const recommended="CASE WHEN "+eligible+" THEN 0 ELSE 1 END,CASE WHEN j.screening_status='WORTH' AND j.communication_state<>'SUCCEEDED' THEN 0 ELSE 1 END,CASE WHEN j.screening_status='PASS' THEN 1 ELSE 0 END,coalesce(j.boss_online,-1) DESC,j.last_seen_at DESC,j.job_id ASC";
- const order=input.sort==='recommended'?recommended:input.sort==='collected'||input.sort==='recent'||input.sort==null?'j.last_seen_at DESC,j.job_id ASC':input.sort==='online'?'coalesce(j.boss_online,-1) DESC,j.last_seen_at DESC,j.job_id ASC':'j.updated_at DESC,j.job_id ASC';
+ // Communication candidates: prioritize diploma, then unrestricted, then bachelor's.
+ // Full JD Detail degree overrides the List degree. Rank before LIMIT/OFFSET,
+ // preserving recruiter activity and collection recency within each rank.
+ const actualDegree="coalesce(nullif(trim(json_extract(d.detail_json,'$.jobInfo.degreeName')),''),nullif(trim(j.education),''),'')";
+ const degreeRank="CASE WHEN "+actualDegree+" LIKE '%大专%' OR "+actualDegree+" LIKE '%专科%' THEN 0 "+
+  "WHEN "+actualDegree+" LIKE '%不限%' OR "+actualDegree+" LIKE '%无要求%' OR "+actualDegree+" LIKE '%不限制%' THEN 1 "+
+  "WHEN "+actualDegree+" LIKE '%本科%' THEN 2 ELSE 3 END";
+ const candidateEducationOrder=degreeRank+",coalesce(j.boss_online,-1) DESC,j.last_seen_at DESC,j.job_id ASC";
+ const order=input.sort==='candidate-education'?candidateEducationOrder:
+  input.sort==='recommended'?recommended:input.sort==='collected'||input.sort==='recent'||input.sort==null?'j.last_seen_at DESC,j.job_id ASC':input.sort==='online'?'coalesce(j.boss_online,-1) DESC,j.last_seen_at DESC,j.job_id ASC':'j.updated_at DESC,j.job_id ASC';
  const items=db.prepare('SELECT j.*,d.detail_json,d.jd_text,d.job_status_desc,d.invalid_status,d.boss_active_desc,d.fetched_at detail_fetched_at'+join+where+' ORDER BY '+order+' LIMIT ? OFFSET ?').all(...params,limit,offset).map(present);
  const summary:any=db.prepare("SELECT count(*) total,sum(CASE WHEN j.screening_status='WORTH' THEN 1 ELSE 0 END) worth,sum(CASE WHEN j.screening_status='PASS' THEN 1 ELSE 0 END) pass,sum(CASE WHEN j.screening_status IN ('PENDING','NEED_DETAIL') THEN 1 ELSE 0 END) pending,sum(CASE WHEN j.screening_status='NEED_DETAIL' THEN 1 ELSE 0 END) need_detail,sum(CASE WHEN j.communication_state='SUCCEEDED' THEN 1 ELSE 0 END) communicated,sum(CASE WHEN "+eligible+" THEN 1 ELSE 0 END) eligible"+join).get();
  const locations=db.prepare("SELECT DISTINCT city FROM jobs WHERE city IS NOT NULL AND trim(city)<>'' ORDER BY city").all().map((r:any)=>r.city);
@@ -461,47 +523,45 @@ export function queryJobs(db:any,input:any={}){
 }
 // Statistics are read from persisted job lifecycle timestamps, never from simulated chart fixtures.
 export function getJobsDashboard(db:any){
- const rows=db.prepare('SELECT first_seen_at,screening_status,screened_at,communication_state,greet_confirmed_at,education FROM jobs').all() as any[];
- const today=new Date(Date.now()+8*3600000);
- const monday=Date.UTC(today.getUTCFullYear(),today.getUTCMonth(),today.getUTCDate()-(today.getUTCDay()+6)%7);
- const weeks=Array.from({length:13},(_,i)=>{
-  const start=monday-(12-i)*7*86400000,end=start+7*86400000;
-  const iso=new Date(start).toISOString().slice(0,10);
-  return {date:iso,label:iso.slice(5).replace('-','/'),start,end};
- });
- const timestamps=(x:any)=>typeof x==='string'&&Number.isFinite(Date.parse(x))?Date.parse(x):null;
- const events=[
-  {name:'received',date:'first_seen_at',valid:(_row:any)=>true},
-  {name:'pass',date:'screened_at',valid:(r:any)=>r.screening_status==='PASS'},
-  {name:'communicated',date:'greet_confirmed_at',valid:(r:any)=>r.communication_state==='SUCCEEDED'}
- ];
- const points=weeks.map(w=>{
-  const v:any={date:w.date,label:w.label};
-  for(const e of events){
-   v[e.name+'New']=0;v[e.name+'Total']=0;
-   for(const row of rows){
-    if(!e.valid(row))continue;
-    const at=timestamps(row[e.date])??(e.name==='pass'?timestamps(row.first_seen_at):null);
-    if(at==null)continue;
-    if(at<w.end)v[e.name+'Total']++;
-    if(at>=w.start&&at<w.end)v[e.name+'New']++;
-   }
-  }
-  return v;
- });
- // Beijing-local daily windows: both event times are independent and not unique-job sums.
- const dayStart=Date.UTC(today.getUTCFullYear(),today.getUTCMonth(),today.getUTCDate());
+ const rows=db.prepare('SELECT screening_status,communication_state,greet_confirmed_at,education FROM jobs').all() as any[];
+ const today=localDay(now()),base=Date.parse(today+'T00:00:00Z');
  const days=Array.from({length:14},(_,i)=>{
-  const start=dayStart-(13-i)*86400000,end=start+86400000;
-  const date=new Date(start).toISOString().slice(0,10);
-  return{date,label:date.slice(5).replace('-','/'),start,end,received:0,communicated:0};
+  const date=new Date(base-(13-i)*86400000).toISOString().slice(0,10);
+  return{date,label:date.slice(5).replace('-','/'),collected:null as number|null,
+   newComparedYesterday:null as number|null,communicated:0,
+   coverage:'missing',scopeComparable:false} as any;
  });
- for(const row of rows){
-  const received=timestamps(row.first_seen_at),contact=row.communication_state==='SUCCEEDED'?timestamps(row.greet_confirmed_at):null;
-  for(const day of days){
-   if(received!=null&&received+8*3600000>=day.start&&received+8*3600000<day.end)day.received++;
-   if(contact!=null&&contact+8*3600000>=day.start&&contact+8*3600000<day.end)day.communicated++;
+ const from=new Date(base-14*86400000).toISOString().slice(0,10);
+ const obs=db.prepare('SELECT local_day,scope,job_id FROM job_daily_observations WHERE local_day>=?').all(from) as any[];
+ const batches=db.prepare('SELECT local_day,scope,historical FROM job_daily_batches WHERE local_day>=?').all(from) as any[];
+ const seen=new Map<string,Set<string>>(),scopes=new Map<string,Set<string>>(),historical=new Set<string>();
+ for(const r of batches){
+  if(!scopes.has(r.local_day))scopes.set(r.local_day,new Set());
+  scopes.get(r.local_day)!.add(r.scope);
+  if(r.historical===1)historical.add(r.local_day);
+ }
+ for(const r of obs){
+  if(!seen.has(r.local_day))seen.set(r.local_day,new Set());
+  seen.get(r.local_day)!.add(r.job_id);
+ }
+ for(const d of days){
+  const known=scopes.get(d.date),nowSet=seen.get(d.date)||new Set<string>();
+  if(known?.size){d.collected=nowSet.size;d.coverage=historical.has(d.date)?'historical-partial':'observed';}
+  const yesterday=new Date(Date.parse(d.date+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+  const past=scopes.get(yesterday);
+  const compatible=d.coverage==='observed'&&past?.size&&!historical.has(yesterday)&&
+   known!.size===past.size&&[...known!].every(x=>past.has(x));
+  if(compatible){
+   const last=seen.get(yesterday)||new Set<string>();
+   d.newComparedYesterday=[...nowSet].filter(x=>!last.has(x)).length;
+   d.scopeComparable=true;
   }
+ }
+ for(const r of rows){
+  if(r.communication_state!=='SUCCEEDED'||!r.greet_confirmed_at)continue;
+  const stamp=localDay(r.greet_confirmed_at);
+  const d=days.find(x=>x.date===stamp);
+  if(d)d.communicated++;
  }
  const education={不限:0,大专:0,本科:0,'其他/未提供':0};
  const judgment={WORTH:0,PENDING:0,PASS:0};
@@ -514,6 +574,6 @@ export function getJobsDashboard(db:any){
   const status=r.screening_status==='NEED_DETAIL'?'PENDING':r.screening_status;
   if(Object.hasOwn(judgment,status))judgment[status as keyof typeof judgment]++;
  }
- return{window:'recent-13-weeks',weeks:points,dailyWindow:'recent-14-days',days,education,judgment,total:rows.length,
-  methodology:'Weekly cumulative collected and confirmed contacts by event time, daily 14 Beijing-local dates. Stacked daily sum represents two distinct events, not deduplicated positions.'};
+ return{dailyWindow:'recent-14-days',days,education,judgment,total:rows.length,
+  methodology:'Date=Asia/Shanghai. Daily collected=distinct job IDs in successful imported BOSS List responses. Same IDs on repeated requests or across scopes count once per day. New vs yesterday=day-set difference only when both adjacent dates have hash-verified capture timestamps and matching expectation/query fingerprints. Archived data is only a lower bound (historical-partial) and missing days remain null, not zero. Greet counts confirmed successes by their own date, independently.'};
 }
