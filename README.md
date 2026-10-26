@@ -14,6 +14,8 @@
 
 **[https://github.com/sayhelloproton-eng/findwork/blob/main/GETTING_STARTED.md](https://github.com/sayhelloproton-eng/findwork/blob/main/GETTING_STARTED.md)**
 
+已有本地项目时，直接读[本地接管指南](./GETTING_STARTED.md)，按任务表继续，不必重新安装。
+
 ### 项目简介
 
 Findwork 利用用户在招聘平台设置的**岗位期望**完成初筛，再由 AI 根据**个人画像、求职偏好、排除条件**进一步评估。岗位数据和处理记录保存在本地，减少重复查看和无效沟通。

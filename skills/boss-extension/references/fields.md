@@ -80,6 +80,7 @@
 | 最近活跃吗 | Detail bossInfo.activeTimeDesc | A：平台显示文案，不能推出具体回复频次 |
 | 是否猎头 | List goldHunter=1 + iconFlagList=[8] + 已知猎头图片 | B 高可信：社区同样按 goldHunter=1 过滤猎头 |
 | 是否派遣 | PC 页面图标 alt=派遣 | 页面 A：已看到 3 个；**仍没有被可靠证明的 List 数值编码** |
+| 是否代招 | List beforeNameIcons 对应 BOSS 原生“代招”图片 | A：本机已核对图片实际文字；不能将 proxyType=4 自动等同代招 |
 | 是否代理招聘 | List proxyJob / proxyType，Detail 同名字段 | B：有明显相关性，但未证明所有代理类型 |
 | 已经沟通过吗 | List contact、Detail relationInfo.beFriend | B：是不同的关系信号，不能当对方已回复 |
 | 是否发送过简历 | Detail oneKeyResumeInfo.alreadySend、atsOnlineApplyInfo.alreadyApply | B：发送和申请维度需要区分 |
@@ -114,4 +115,4 @@
 
 ### 2026-10-24 本机真实岗位样本增量核验（仅已保留的 476 条）
 
-逐条从已落库原始 list_json.beforeNameIcons 读取确认：图片值是 **URL 字符串数组**，不是 {url,label} 对象；其中已确认猎头原生图片 cy4fi6cada1655206055291.png 共 98 次、派遣原生图片 6zb0e7e8qm1655206107975.png 共 2 次、急聘 4or9x2qcfv1699943576247.png 共 5 次，另 1 次 pvmr2v0l8i1655206532429.png 含义未知。goldHunter=1 共 98 条；proxyJob=1 共 111 条，不能把所有 proxyJob/proxyType=1/3/4 误判成派遣或外包。已确证图片字段可用于原生角标，**未知编码仍待 PC DOM 逐一对齐后才可升级证据等级**。上述频数仅当前数据库快照，不代表 BOSS 全站枚举。
+逐条从已落库原始 list_json.beforeNameIcons 读取确认：图片值是 **URL 字符串数组**，不是 {url,label} 对象；其中已确认猎头原生图片 cy4fi6cada1655206055291.png 共 98 次、派遣原生图片 6zb0e7e8qm1655206107975.png 共 2 次、急聘 4or9x2qcfv1699943576247.png 共 5 次、代招原生图片 pvmr2v0l8i1655206532429.png 共 1 次（图片原文已核对为“代招”，与用户 BOSS 截图一致）。goldHunter=1 共 98 条；proxyJob=1 共 111 条，不能把所有 proxyJob/proxyType=1/3/4 误判成派遣或外包。已确证图片字段可用于上述四类原生角标，其中唯一的代招图片样本实际 proxyType=1，故 **proxyType=4 与代招不能画等号**。同批 iconFlagList 伴随图标出现 [8] 猎头、[3] 派遣、[2] 代招、[1] 急聘，但编码没有经过独立枚举确认，现阶段仍依原生图片/明确文字，不单靠数值预测标签。上述频数仅当前数据库快照，不代表 BOSS 全站枚举。

@@ -15,6 +15,6 @@ BOSS 只是**当前唯一已接入平台**。BOSS 扩展的动作、下载回执
 
 ## 已授权沟通与回执
 
-逐职位确认候选与用户授权后 `claim` 唯一 actionId，再调用 BOSS Skill 的 Greet（串行/节流依平台规定）。以本轮 `BOSS/YYYY-MM-DD/greet/` 文件导入 `import-greet`，再读取 DB 证明已沟通或其他真实状态。UNKNOWN 不重复发送；Greet 不代表正式简历投递。
+逐职位确认候选与用户授权后，批量用 `claim-batch`、单条可用 `claim` 取得唯一 actionId，再用普通 Chrome 打开 BOSS Skill 的带参数 Greet 入口（串行/节流由扩展执行）。观察与人工恢复只使用同一个不带参数的 Greet 页面；岗位关闭保留失败，120 次提醒人工确认后继续剩余队列，平台次数/额度类明确失败先暂停；当天成功未满150时仅用户明确手动重发，原平台错误不作为本地硬锁；UNKNOWN、关闭和其他失败不重发。不得用 Playwright/CDP 访问或监听 BOSS，不寻找受控页面组、不创建额外观察页。以本轮 `BOSS/YYYY-MM-DD/greet/` 文件导入 `import-greet`，再读取 DB 证明已沟通或其他真实状态。UNKNOWN 不重复发送；Greet 不代表正式简历投递。
 
 验证码、风控、业务码 37、源文件无效、岗位 ID 不符或下载 UNKNOWN 时立即停在第一失败点。不要凭旧采集日志或 UI 显示生成“成功”结论。投递后招聘者回复和跟进属于平台自身。

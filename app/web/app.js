@@ -1,3 +1,4 @@
+// LEGACY: retained for compatibility tests only; not served by the production app.
 import {renderJobRow,renderDetail,escapeHtml} from './job-view.js';
 const form=document.querySelector('#filters'),rows=document.querySelector('#rows'),error=document.querySelector('#error'),notice=document.querySelector('#notice'),pageSize=document.querySelector('#page-size');
 let offset=0,request=0,detailRequest=0,candidates=false,expandedId=null,total=0;

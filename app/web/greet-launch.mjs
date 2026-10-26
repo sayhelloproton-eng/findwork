@@ -3,6 +3,10 @@
 const extensionIdPattern=/^[a-p]{32}$/;
 const jobIdPattern=/^[a-zA-Z0-9_~\-]{10,120}$/;
 export const validBossExtensionId=value=>typeof value==='string'&&extensionIdPattern.test(value);
+export function compatibleBossExtension(info){
+ return validBossExtensionId(info?.extensionId)&&info.protocolVersion===2&&Array.isArray(info.capabilities)&&
+  ['greet-enqueue','queue-observation','pre-send-check','manual-retry','clear-completed'].every(c=>info.capabilities?.includes(c));
+}
 export function buildGreetPageUrl(extensionId,item,serverOrigin){
  if(!validBossExtensionId(extensionId))throw Error('BOSS_EXTENSION_NOT_DETECTED');
  if(!item||!jobIdPattern.test(item.jobId)||typeof item.securityId!=='string'||!item.securityId||

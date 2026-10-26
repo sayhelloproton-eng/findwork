@@ -5,10 +5,15 @@ importScripts(
  'core/capture/auto-download.js',
  'core/capture/hook-recovery.js',
  'actions/detail/dom-native-store.js',
+ 'actions/greet/greet-state.js',
+ 'actions/greet/resume-delivery.js',
  'actions/greet/greet-queue.js',
+ 'core/findwork/collection-launch.js',
  'core/shared/action-event-router.js'
 );
 BossRawDownloads.install();
 BossNaturalDetail.install();
+BossResumeDelivery.install();
+BossCollectionLaunch.install();
 BossGreetQueue.install();
 BossActionRouter.install();

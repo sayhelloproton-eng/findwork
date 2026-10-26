@@ -3,7 +3,7 @@
 (async()=>{
  'use strict';
  const el=document.getElementById('state'),detail=document.getElementById('detail');
- const say=(msg,info)=>{el.textContent=msg;detail.textContent=JSON.stringify(info||{},null,2);};
+ const say=(msg,info)=>{document.title='Detail · '+msg.slice(0,120);el.textContent=msg;detail.textContent=JSON.stringify(info||{},null,2);};
  const valid=id=>typeof id==='string'&&/^[a-zA-Z0-9_~-]{10,120}$/.test(id);
  const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  const params=new URLSearchParams(location.search);
@@ -37,7 +37,7 @@
  const maxPages=auto?Number(pagesValue):1;
  const targetDownloads=auto?maxPages*15:null;
  let session={contract:'boss-dom-detail-sequence.v1',
-  runId:crypto.randomUUID(),fresh,mode:auto?'AUTO':'BATCH',
+  runId:crypto.randomUUID(),...(params.get('requestId')?{requestId:params.get('requestId')}:{}),fresh,mode:auto?'AUTO':'BATCH',
   targetPages:maxPages,targetDownloads,completed:0,status:'RUNNING',
   batches:[],failed:null,startedAt:new Date().toISOString()};
  const stopButton=document.getElementById('stop');

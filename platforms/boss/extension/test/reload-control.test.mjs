@@ -32,7 +32,15 @@ test('version and fixed extension entry remain stable',()=>{
  assert.match(manifest.version,/^1\.1\.\d+$/);
  assert.equal(manifest.background.service_worker,'auto-entry.js');
  assert.equal(Object.hasOwn(manifest,'action'),false);
- assert.equal(manifest.content_scripts.length,2);
+ assert.equal(manifest.content_scripts.length,3);
+ const bridge=manifest.content_scripts.find(entry=>entry.js.includes('core/findwork/communication-bridge.js'));
+ assert.ok(bridge,'local Findwork bridge must be declared');
+ assert.deepEqual(bridge.matches,['http://127.0.0.1/*','http://localhost/*']);
+ assert.ok(manifest.host_permissions.includes('http://127.0.0.1/*'));
+ assert.ok(manifest.host_permissions.includes('http://localhost/*'));
+ assert.match(source('core/findwork/communication-bridge.js'),/FINDWORK_BOSS_EXTENSION_INFO/);
+ assert.doesNotMatch(source('core/findwork/communication-bridge.js'),/FINDWORK_BOSS_GREET_BATCH|GREET_QUEUE_ENQUEUE/);
+
  assert.doesNotMatch(source('auto-entry.js'),/flow-control\.js/);
  assert.match(source('auto-entry.js'),/BossNaturalDetail\.install\(\)/);
  assert.match(source('auto-entry.js'),/BossGreetQueue\.install\(\)/);

@@ -33,6 +33,17 @@ export function getResumeApplicationSignals(db:any,input:any={}){
    communicationState:job.communication_state,applicationState:job.application_state,
    signals:classifyResumeApplication(job.list,detail)};
  }),total,limit,offset,mode,execution:{
-  supported:false,reason:'NATIVE_DIRECT_APPLICATION_ENDPOINT_NOT_VERIFIED',
-  scope:'Independent resume application; never use Greet as a substitute'}};
+  supported:true,kind:'ATTACHMENT_RESUME',defaultEnabled:false,enabled:null,
+  requiredCapability:'resume-delivery-opt-in',owner:'BOSS_EXTENSION_GREET',
+  frontendContractVerified:true,runtimeVerified:false,reason:'EXTENSION_OPT_IN_REQUIRED',
+  scope:'Optional attachment delivery in Greet; separate receipt, no backend BOSS sender'}};
+}
+
+// Read-only eligibility check for the independently opted-in extension action.
+export function checkResumeApplication(db:any,input:any={}){
+ if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['jobId','actionId'].includes(k))||typeof input.jobId!=='string'||typeof input.actionId!=='string'||!input.actionId)fail('INVALID_APPLICATION_CHECK');
+ const job=getJob(db,input.jobId);
+ if(job.action_id!==input.actionId||!['IN_FLIGHT','SUCCEEDED'].includes(job.communication_state)||
+  job.screening_status!=='WORTH'||job.decision_stale||job.facts.closed||job.facts.advanced_degree_excluded||job.application_state!=='NONE')fail('RESUME_APPLICATION_BLOCKED');
+ return{allowed:true,jobId:job.job_id,actionId:input.actionId};
 }

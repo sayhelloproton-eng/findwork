@@ -9,7 +9,7 @@ test('twenty selected jobs generate precisely twenty explicit authorizations wit
  assert.equal((prompt.match(/jobId=boss-job-/g)||[]).length,20);
  assert.match(prompt,/1\. jobId=boss-job-000/);
  assert.match(prompt,/20\. jobId=boss-job-019/);
- assert.match(prompt,/先沟通、后投简历/);
+ assert.match(prompt,/不授权简历提交/);assert.match(prompt,/禁止通过 Playwright\/CDP/);
  assert.match(prompt,/逐条核验/);
  assert.match(prompt,/导入数据库/);
  assert.match(prompt,/不允许替换、扩充或重复投递/);

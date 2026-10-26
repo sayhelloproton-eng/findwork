@@ -41,7 +41,7 @@ Chrome 当前下载根目录下生成：
       greet/         独立授权的真实沟通结果
       diagnostics/   手动诊断
 
-List 的 encryptJobId 必须与 Detail 的 jobInfo.encryptId 对应，JD 非空，且是**本轮**文件。下载之后的数据去重、AI 判断、导入 SQLite、其他数据库和 Web 工作台，全是**外部消费者**的事情。Greet 是实际发送消息，不是正式简历投递，更不等于获得回复。只读诊断入口为 `actions/detail/diagnose.html` 和 `diagnostics/greet-status.html`；不提供完整页面 DOM 导出。
+List 的 encryptJobId 必须与 Detail 的 jobInfo.encryptId 对应，JD 非空，且是**本轮**文件。下载之后的数据去重、AI 判断、导入 SQLite、其他数据库和 Web 工作台，全是**外部消费者**的事情。Greet 是实际发送消息，不是正式简历投递，更不等于获得回复。Detail 只读诊断入口为 `actions/detail/diagnose.html`。沟通只有 `actions/greet/greet.html` 一个入口：带参数入队，不带参数查看队列、失败原因和人工处理提示；旧 `diagnostics/greet-status.html` 只跳转到该页。不提供完整页面 DOM 导出。
 
 ## 阅读与贡献
 
@@ -51,3 +51,9 @@ List 的 encryptJobId 必须与 Detail 的 jobInfo.encryptId 对应，JD 非空�
 - `test/fixtures/`：真实结构、合成数据的 List、Detail、DOM 卡片样例，供测试而不是个人职位数据。
 
 `npm test` 验证离线功能，`npm run verify` 增加工程/Skill/正式构建。真实 Chrome 成功需要另验下载文件。所有私人 JSON、账号凭证、数据库与 Greet 记录都不得提交公共仓库。
+
+运行能力由扩展后台通过现有身份桥报告，不能只比较版本号。正式包不包含简历投递研究观察页；application研究源码不代表投递能力，须另有明确研究授权。今日成功以业务回执完成日期统计，下载延迟不改变所属日。
+
+Greet 同一页面还有可选的「同时发送附件简历」开关，默认关闭，开启后仅影响新入队的岗位；先确认打招呼成功，再尝试支持直投的附件简历。简历失败不改变打招呼结果；多份附件需选择，安全确认交人工，未知不重发。结果单独下载到 application 目录。此功能目前完成离线验证，真实平台效果需另行验收。
+
+1.1.25 修复了跨模块安全停止、简历交接中断恢复、正式重发附件快照、未知结果清理和附件身份回执。工作台采集入口可核查并复用旧的已完成控制页，丢失启动回执不会重复开页。真实平台验收仍需按主项目docs/ACCEPTANCE.md记录，不能据源码版本宣布成功。

@@ -1,4 +1,6 @@
--- Shared v6 schema, initialized from first BOSS source.
+-- Findwork shared v7 schema. New databases use this DDL; existing databases
+-- migrate through app/db/ingestion/job-store.ts, never by replaying this file.
+-- Timestamps retain their source instant; daily reporting uses Asia/Shanghai.
 CREATE TABLE jobs (
   job_id TEXT PRIMARY KEY NOT NULL CHECK(length(trim(job_id))>0),
   job_name TEXT NOT NULL, brand_name TEXT, brand_id TEXT, city TEXT, district TEXT, business_district TEXT,
@@ -14,6 +16,8 @@ CREATE TABLE jobs (
   screening_basis_hash TEXT, screening_basis_type TEXT,
   decision_source TEXT CHECK(decision_source IN ('MANUAL','SKILL','DEMO')),
   strategy_version TEXT, screened_at TEXT, revision INTEGER NOT NULL DEFAULT 0,
+  -- Only a verified imported Greet receipt establishes SUCCEEDED. Claims,
+  -- enqueue ACKs, historical contact flags, FAILED and UNKNOWN are not success.
   communication_state TEXT NOT NULL DEFAULT 'NONE' CHECK(communication_state IN ('NONE','IN_FLIGHT','SUCCEEDED','FAILED','UNKNOWN')),
   communicated INTEGER GENERATED ALWAYS AS (communication_state='SUCCEEDED') VIRTUAL,
   history_blocked INTEGER NOT NULL DEFAULT 0 CHECK(history_blocked IN (0,1)),
@@ -23,10 +27,14 @@ CREATE TABLE jobs (
   greet_reason TEXT, greet_json TEXT CHECK(greet_json IS NULL OR json_valid(greet_json)),
   greet_source TEXT, greet_source_hash TEXT,
   greet_raw_json TEXT CHECK(greet_raw_json IS NULL OR json_valid(greet_raw_json)),
+  -- Resume submission has its own receipt and action identity. Its result must
+  -- not overwrite communication_state or count toward the daily Greet quota.
   application_state TEXT NOT NULL DEFAULT 'NONE' CHECK(application_state IN ('NONE','SUCCEEDED','FAILED','UNKNOWN')),
   application_action_id TEXT, application_at TEXT,
   application_raw_json TEXT CHECK(application_raw_json IS NULL OR json_valid(application_raw_json)),
   application_source_hash TEXT,
+  -- first_seen_at counts newly recorded jobs; last_seen_at filters collection
+  -- recency. Neither is a platform publication date or a successful Greet date.
   first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, list_updated_at TEXT NOT NULL, updated_at TEXT NOT NULL,
   CHECK(screening_status NOT IN ('PASS','WORTH') OR (screening_reason IS NOT NULL AND length(trim(screening_reason))>0))
 ) STRICT;
@@ -49,6 +57,7 @@ CREATE TABLE list_responses (
   source TEXT,
   imported_at TEXT NOT NULL
 ) STRICT;
+-- Keep prior attempts as events when an explicitly allowed retry is claimed.
 CREATE TABLE job_events (
   event_id INTEGER PRIMARY KEY AUTOINCREMENT,
   job_id TEXT NOT NULL REFERENCES jobs(job_id),
@@ -57,6 +66,8 @@ CREATE TABLE job_events (
   event_key TEXT NOT NULL UNIQUE
 );
 CREATE INDEX job_events_time ON job_events(occurred_at,event_type);
+-- Collection observations deduplicate by business day, scope and job ID;
+-- repeated imports do not manufacture additional newly recorded jobs.
 CREATE TABLE job_daily_observations (
  local_day TEXT NOT NULL CHECK(length(local_day)=10),scope TEXT NOT NULL,
  job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,

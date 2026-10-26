@@ -15,7 +15,7 @@ for(const page of pages){
  }
 }
 const worker=read('auto-entry.js');
-for(const owner of ['BossRawDownloads','BossNaturalDetail','BossGreetQueue','BossActionRouter'])
+for(const owner of ['BossRawDownloads','BossNaturalDetail','BossGreetQueue','BossResumeDelivery','BossCollectionLaunch','BossActionRouter'])
  if(!worker.includes(owner+'.install()'))throw Error('OWNER_MISSING:'+owner);
 for(const dead of ['BossDetailQueue','BossDetailNativeClient','BossCaptureScheduler',
  'BossCaptureCoordinator','BossBatchStore','BossCaptureEvidence'])
@@ -47,4 +47,4 @@ if(exists('diagnostics/environment-diagnostic.html')||
  exists('diagnostics/environment-diagnostic.js'))throw Error('RETIRED_DEBUGGER_DIAGNOSTIC');
 if(JSON.parse(read('package.json')).version!==JSON.parse(read('manifest.json')).version)
  throw Error('VERSION_DRIFT');
-console.log('ENGINEERING_BOUNDARY_PASS owners=4 pages='+pages.length);
+console.log('ENGINEERING_BOUNDARY_PASS owners=6 pages='+pages.length);

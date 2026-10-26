@@ -6,6 +6,22 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 const make=(ids:string[],type=1)=>({code:0,zpData:{type,jobList:ids.map(jobId=>({encryptJobId:jobId,jobName:'合成岗位'}))}});
 const day=stamp=>new Date(new Date(stamp).getTime()+8*3600000).toISOString().slice(0,10);
+test('newly collected counts use first inclusion in local time and never count recaptured jobs as new',t=>{
+ const db=openJobsDatabase(':memory:');t.after(()=>db.close());
+ const today=day(new Date().toISOString());
+ const yesterday=new Date(Date.parse(today+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+ importList(db,make(['old','new-a','new-b']));
+ // 23:30 UTC is the following local date, so this belongs to yesterday.
+ const earlier=new Date(Date.parse(yesterday+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+ db.prepare('UPDATE jobs SET first_seen_at=? WHERE job_id=?').run(earlier+'T23:30:00.000Z','old');
+ importList(db,make(['old','new-a','new-b']));
+ const dashboard=getJobsDashboard(db),latest=dashboard.days.at(-1);
+ assert.equal(latest.collected,3);
+ assert.equal(latest.newComparedYesterday,null);
+ assert.equal(latest.newlyCollected,2);
+ assert.equal(dashboard.days.find(d=>d.date===yesterday).newlyCollected,1);
+ assert.equal(dashboard.days.reduce((n,d)=>n+d.newlyCollected,0),3);
+});
 test('same response hash same day dedups, identical response next day still observed',t=>{
  const db=openJobsDatabase(':memory:');t.after(()=>db.close());
  const sample=make(['a','b']);importList(db,sample);importList(db,sample);

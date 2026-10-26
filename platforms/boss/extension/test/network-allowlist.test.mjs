@@ -62,8 +62,11 @@ test('Manifest installs policy before the MAIN hook and retains single observer'
  const m=JSON.parse(source('manifest.json'));
  assert.match(m.version,/^1\.1\.\d+$/);
  assert.deepEqual(m.content_scripts[0].js,
-  ['core/network/normalizer.js','core/network/network-allowlist.js','core/network/main-hook.js']);
- assert.deepEqual(m.content_scripts[1].js,['core/capture/page-observer.js']);
+  ['core/network/normalizer.js','core/network/network-allowlist.js',
+   'core/network/main-hook.js']);
+ assert.deepEqual(m.content_scripts[1].js,
+  ['core/capture/page-observer.js']);
+ assert.match(source('core/application/probe-main.js'),/BOSS_DIRECT_APPLY_PROBE_CANDIDATE_V1/);
  assert.match(source('core/network/main-hook.js'),/BossNetworkAllowlist\.shouldCapture/);
 });
 

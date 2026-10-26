@@ -1,8 +1,9 @@
 import React,{useEffect,useState} from 'react';
 import {Alert,Button,Card,Empty,Pagination,Space,Table,Tabs,Tag,Tooltip,Typography} from 'antd';
 import {bossRecruitmentBadges} from './boss-recruitment-badges.mjs';
-import {makeCommunicationAiPrompt} from './communication-ai-prompt.mjs';
+import {readReservationOutcome,reservationFailureMessage} from './communication-recovery.mjs';
 import {resolveSelectedCandidateJobs} from './communication-selection.mjs';
+import {buildGreetPageUrl,openGreetPlaceholders,closeGreetPlaceholders,validBossExtensionId,compatibleBossExtension} from './greet-launch.mjs';
 const {Text,Title}=Typography;
 const format=v=>v?new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(v)):'—';
 async function read(url,opts){const response=await fetch(url,opts);const d=await response.json();if(!response.ok)throw Error(d.error||'服务请求失败');return d;}
@@ -28,7 +29,8 @@ export default function Communications(){
  const [candidates,setCandidates]=useState({items:[],total:0}),[today,setToday]=useState({items:[],total:0});
  const [candidatePage,setCandidatePage]=useState(1),[todayPage,setTodayPage]=useState(1);
  const [selected,setSelected]=useState([]),[error,setError]=useState(''),[message,setMessage]=useState('');
- const [activeTab,setActiveTab]=useState('candidates');
+ const [activeTab,setActiveTab]=useState('candidates'),[opening,setOpening]=useState(false);
+ const [extensionId,setExtensionId]=useState('');
  const refresh=()=>{
   Promise.all([
    read('/api/communications/candidates?limit=20&offset='+((candidatePage-1)*20)),
@@ -38,15 +40,69 @@ export default function Communications(){
  };
  useEffect(()=>{refresh();},[candidatePage,todayPage]);
  useEffect(()=>{const interval=setInterval(()=>{if(!document.hidden)refresh();},12000);return()=>clearInterval(interval);},[candidatePage,todayPage]);
- const copyAiInstruction=async()=>{
+ useEffect(()=>{
+  const receive=event=>{
+   if(event.source===window&&event.origin===location.origin&&event.data?.type==='FINDWORK_BOSS_EXTENSION_INFO'&&
+     validBossExtensionId(event.data.extensionId)){
+    if(compatibleBossExtension(event.data))setExtensionId(event.data.extensionId);
+    else{setExtensionId('');setError('已发现扩展，但运行能力不兼容。请由 AI 核对实际加载版本；尚未领取岗位。');}
+   }
+  };
+  window.addEventListener('message',receive);
+  window.postMessage({type:'FINDWORK_BOSS_EXTENSION_INFO_PING'},location.origin);
+  return()=>window.removeEventListener('message',receive);
+ },[]);
+ const openSelectedGreetPages=async()=>{
+  if(opening||!selected.length)return;
   setError('');setMessage('');
+  if(selected.length>150){setError('每批最多选择 150 条岗位，请减少勾选数量。');return;}
+  if(!validBossExtensionId(extensionId)){setError('当前 Chrome 未确认已启用 Findwork 兼容扩展；未领取任何岗位。');return;}
+  // Chrome only trusts direct window.open calls made synchronously in this button click.
+  // Blank pages are not Greet actions: only successfully opened pages get claimed.
+  const {opened,blocked}=openGreetPlaceholders(selected,(url,target)=>window.open(url,target));
+  if(!opened.length){setError('Chrome 拦截了全部弹窗。请允许本地 Findwork 打开新窗口后再点击。');return;}
+  setOpening(true);
+  let reservationAttempted=false;
   try{
-   const latest=await resolveSelectedCandidateJobs(selected,read);
-   const prompt=makeCommunicationAiPrompt(latest,selected);
-   if(!navigator.clipboard?.writeText)throw Error('CLIPBOARD_UNAVAILABLE');
-   await navigator.clipboard.writeText(prompt);
-   setMessage('已复制 '+selected.length+' 条岗位的 AI 执行提示词。请粘贴到 ChatGPT 对话中；复制本身不会触发沟通。');
-  }catch(e){setError('复制失败：'+(e?.message||'CLIPBOARD_FAILED')+'。请确认岗位选择后重试。');}
+   const jobIds=opened.map(entry=>entry.jobId);
+   await resolveSelectedCandidateJobs(jobIds,read);
+   reservationAttempted=true;
+   const result=await read('/api/communications/batch',{
+    method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({jobIds})
+   });
+   if(result.accepted!==opened.length||!Array.isArray(result.items)||
+     result.items.length!==opened.length)throw Error('BATCH_RESERVATION_MISMATCH');
+   const byId=new Map(result.items.map(item=>[item.jobId,item]));
+   let launched=0;
+   const failed=[];
+   for(const entry of opened){
+    try{
+     const item=byId.get(entry.jobId);
+     if(!item)throw Error('RESERVED_JOB_MISSING');
+     entry.tab.location.replace(buildGreetPageUrl(extensionId,item,location.origin));
+     launched++;
+    }catch{
+     failed.push(entry.jobId);
+     try{entry.tab.close();}catch{}
+    }
+   }
+   setSelected(previous=>previous.filter(id=>!jobIds.includes(id)));
+   refresh();
+   setMessage('已为 '+launched+' 条岗位打开扩展 Greet 页面。页面自动入队，实际沟通成功以下载回执为准。');
+   if(blocked.length||failed.length)setError(
+    (blocked.length?'Chrome 拦截了 '+blocked.length+' 个窗口（未领取这些岗位）。':'')+
+    (failed.length?' 有 '+failed.length+' 条已经领取但打开失败，需核对状态，不能重复发送。':'')
+   );
+  }catch(e){
+   closeGreetPlaceholders(opened);
+   if(reservationAttempted){
+    const ids=opened.map(x=>x.jobId),outcome=await readReservationOutcome(ids,read);
+    setSelected(previous=>previous.filter(id=>!ids.includes(id)));
+    setError(reservationFailureMessage(outcome));refresh();
+   }else setError('未发起领取：'+(e?.message||'BATCH_OPEN_FAILED'));
+
+  }finally{setOpening(false);}
  };
  const nameColumn={title:'职位 / 公司',key:'job',width:265,render:primary};
  const condColumn={title:'岗位条件',key:'conditions',width:165,render:conditions};
@@ -55,11 +111,11 @@ export default function Communications(){
   <Card size="small" className="communication-card">
    <Tabs className="communication-tabs" activeKey={activeTab} onChange={setActiveTab}
     tabBarExtraContent={activeTab==='candidates'?<Space wrap size="small">
-     <Text type="secondary" className="communication-bridge-state">可跨页勾选；复制前核验最新候选，本页面不会发送消息</Text>
-     <Button type="primary" disabled={!selected.length} onClick={copyAiInstruction}>复制 AI 执行提示词（{selected.length}）</Button>
+     <Text type="secondary" className="communication-bridge-state">{extensionId?'沟通扩展已连接 · 勾选岗位后点击一次':'等待沟通扩展连接'}</Text>
+     <Button type="primary" disabled={!selected.length||opening} loading={opening} onClick={openSelectedGreetPages}>一键沟通（{selected.length}）</Button>
     </Space>:null}
     items={[
-     {key:'candidates',label:'值得投递 · 未沟通（'+candidates.total+'）',children:<>
+     {key:'candidates',label:'值得投递 · 可沟通（'+candidates.total+'）',children:<>
       {error&&<Alert type="error" showIcon message={error} style={{margin:'8px 0'}}/>}
       {message&&<Alert type="info" showIcon message={message} style={{margin:'8px 0'}}/>}
       <Table rowKey="job_id" size="small" tableLayout="fixed" scroll={{x:1100}} pagination={false} dataSource={candidates.items}

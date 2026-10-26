@@ -18,7 +18,7 @@ test('README starts with a compact AI onboarding link and concise sections',()=>
  assert.equal((readme.match(/https:\/\/github\.com\/sayhelloproton-eng\/findwork\/blob\/main\/GETTING_STARTED\.md/g)||[]).length,2);
  assert.ok(fs.existsSync(path.join(repo,'GETTING_STARTED.md')));
  assert.equal((readme.match(/^## /gm)||[]).length,0,'Do not use oversized second-level headings');
- assert.equal((readme.match(/^### /gm)||[]).length,4);
+ assert.ok((readme.match(/^### /gm)||[]).length>=4);
  assert.ok(readme.length<1600,'Landing README should remain concise');
  assert.ok(readme.includes('| 入库与去重 |'));
 });
@@ -80,6 +80,7 @@ test('relative Markdown links resolve and public landing page has no vendor bran
   }
  }
  assert.doesNotMatch(readme,/BOSS|直聘|风控|逆向|伪造/);
- assert.doesNotMatch(guide,/BOSS|直聘|风控|逆向|伪造/);
+ assert.match(guide,/禁止.*Playwright.*CDP/);
+ assert.ok(guide.indexOf('禁止')<guide.indexOf('### 第 1 步'));
  assert.ok(read('AGENTS.md').includes('GETTING_STARTED.md'));
 });

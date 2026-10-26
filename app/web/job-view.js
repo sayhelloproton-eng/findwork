@@ -1,3 +1,4 @@
+// LEGACY: retained for compatibility tests only; not served by the production app.
 export const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const e=escapeHtml;
 export const statusLabels={PENDING:'待评估',NEED_DETAIL:'缺详情',WORTH:'值得投',PASS:'PASS'};

@@ -1,9 +1,11 @@
 import './echarts-entry.mjs';
 import React,{useCallback,useEffect,useRef,useState} from 'react';
 import {makeJudgmentPieOptions} from './judgment-pie-options.mjs';
+import {describeCommunication} from './communication-status.mjs';
 import {describeDecision} from './decision-display.mjs';
 import {bossRecruitmentBadges} from './boss-recruitment-badges.mjs';
 import Communications from './communications.jsx';
+import CollectionDialog from './collection-dialog.jsx';
 import {Layout,Menu} from 'antd';
 import {makeDailyAppearanceOptions,makeDailyCollectedAndGreetOptions} from './dashboard-options.mjs';
 import {createRoot} from 'react-dom/client';
@@ -15,7 +17,7 @@ const {Title,Text}=Typography;
 const labels={WORTH:'值得投',PENDING:'待评估',NEED_DETAIL:'待评估',PASS:'PASS'};
 const colors={WORTH:'success',PENDING:'default',NEED_DETAIL:'default',PASS:'error'};
 const statusOptions=[{label:'全部',value:''},{label:'值得投',value:'WORTH'},{label:'待评估',value:'PENDING'},{label:'PASS',value:'PASS'}];
-const commOptions=[{label:'全部',value:''},{label:'已沟通',value:'true'},{label:'未沟通',value:'false'}];
+const commOptions=[{label:'全部',value:''},{label:'已沟通',value:'true'},{label:'未成功沟通',value:'false'}];
 const educationOptions=[{label:'全部',value:''},{label:'不限',value:'不限'},{label:'大专',value:'大专'},{label:'本科',value:'本科'},{label:'其他',value:'其他'}];
 const sortOptions=[{label:'采集时间',value:'collected'},{label:'更新时间',value:'updated'}];
 const dateModes=[{label:'最近一天',value:'last1'},{label:'最近三天',value:'last3'},{label:'最近七天',value:'last7'},{label:'自定义日期范围',value:'custom'}];
@@ -54,7 +56,7 @@ function JdPreview({job:j}){
  const s=j.ai_summary;
  if(j.ai_summary_status!=='READY'||!s)return <span className="ai-jd-pending">{j.ai_summary_status==='NO_DETAIL'?'—':'待 AI 提炼'}</span>;
  const extracted=s.headline.startsWith('原文摘录｜');
- const groups=[['核心职责',s.responsibilities],['硬性要求',s.requirements],['加分项',s.bonus],['特别注意',s.notices]];
+ const groups=[['核心职责',s.responsibilities],['任职要求',s.requirements],['加分项',s.bonus],['特别注意',s.notices]];
  return <Popover trigger="hover" placement="bottomLeft" overlayClassName="ai-jd-popover" mouseEnterDelay={0.12}
   title={extracted?'JD 原文结构化摘录 · 非 AI 评估':'AI 岗位提炼 · 来源：已采集 JD'} content={<div className="ai-jd-popover-body">
    {groups.filter(([,items])=>items?.length).map(([title,items])=><section className="ai-jd-group" key={title}>
@@ -140,7 +142,7 @@ function TrendChart({data,mode}){
  const rows=data.days||[];
  const options=mode==='new-appearances'?makeDailyAppearanceOptions(rows):makeDailyCollectedAndGreetOptions(rows);
  return <EChartCanvas options={options} dataKey={mode+'|'+JSON.stringify(rows)}
-  ariaLabel={mode==='new-appearances'?'最近十四天较前一天新出现岗位趋势，缺失基线不补零':'最近十四天每日收录与沟通分组柱状图'}/>;
+  ariaLabel={mode==='new-appearances'?'最近十四天每日首次入库的新增岗位趋势':'最近十四天每日收录与沟通分组柱状图'}/>;
 }
 function DonutCard({title,subtitle,entries,help}){
  const total=entries.reduce((n,e)=>n+Math.max(0,Number(e.value)||0),0);
@@ -168,9 +170,8 @@ function JobDashboard({data}){
  const degree=data.education||{},decisions=data.judgment||{};
  return <section className="dashboard-row" aria-label="岗位分析大盘">
   <div className="dashboard-panel trend-panel">
-   <div className="dashboard-panel-title">每日新出现岗位趋势</div>
-   <div className="dashboard-subtitle">{(data.days||[]).some(d=>d.newComparedYesterday!==null)?
-    '最近14天 · 较前一天新出现':'暂无可比前日基线 · 后续连续采集自动生成'}</div>
+   <div className="dashboard-panel-title">每日新增收录岗位趋势</div>
+   <div className="dashboard-subtitle">最近14天 · 首次入库去重 · 重复采集不计新增</div>
    <TrendChart data={data} mode="new-appearances"/>
   </div>
   <div className="dashboard-panel trend-panel">
@@ -231,7 +232,7 @@ function Worktable(){
  const [dashboard,setDashboard]=useState(null);
  const [loading,setLoading]=useState(true),[error,setError]=useState('');
  const [expandedId,setExpandedId]=useState(null),[detail,setDetail]=useState(null),[detailLoading,setDetailLoading]=useState(false);
- const [demo,setDemo]=useState(false);
+ const [demo,setDemo]=useState(true);
  useEffect(()=>{
   const controller=new AbortController();const params=new URLSearchParams();
   Object.entries(filters).forEach(([k,v])=>{if(k!=='dateMode'&&k!=='customRange'&&v!==''&&v!=null)params.set(k,String(v));});
@@ -285,14 +286,17 @@ function Worktable(){
    </div>;
   }},
   {title:'沟通 / 时间',key:'communication',width:172,render:(_,j)=><div className="stack communication-dates">
-   <Tag color={j.communicated?'success':'default'} bordered={false}>{j.communicated?'已沟通':'未沟通'}</Tag>
+   <Tag color={describeCommunication(j).color} bordered={false}>{describeCommunication(j).label}</Tag>
+   {j.same_recruiter_communicated&&<Tooltip title="当前岗位未沟通，但同一招聘者的其他岗位已有成功沟通记录">
+    <Tag className="same-recruiter-communicated" color="warning" bordered={false}>同人已沟通</Tag>
+   </Tooltip>}
    {j.communicated&&j.communicated_at&&<Tooltip title={'确认 Greet 成功时间（北京时间）：'+formatCaptureTime(j.communicated_at)}><Text className="communication-time">沟通 {formatCaptureTime(j.communicated_at)}</Text></Tooltip>}
    <Tooltip title={'本地记录最后修改时间（北京时间）；首次落库：'+(formatCaptureTime(j.first_seen_at)||'未记录')}><Text className="record-updated-time">更新 {formatCaptureTime(j.updated_at)||'未记录'}</Text></Tooltip>
    {!j.communicated&&j.block_reason&&<Tooltip title={j.block_reason}><Text className="historical-signal" type="warning">有历史线索</Text></Tooltip>}
   </div>},
  ];
  return <main className="worktable">
-  <header className="worktable-header"><Title level={3} style={{margin:0}}>岗位工作台</Title></header>
+  <header className="worktable-header"><Title level={3} style={{margin:0}}>岗位工作台</Title><CollectionDialog demo={demo}/></header>
   {demo&&<Alert type="warning" showIcon className="top-alert" message="演示数据：筛选及沟通记录均为模拟，不代表真实投递。"/>}
   <JobDashboard data={dashboard}/>
   <Card className="filter-card" size="small">

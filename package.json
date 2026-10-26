@@ -12,11 +12,11 @@
     "demo": "node app/server/server.ts --demo",
     "jobs": "node app/server/job-cli.ts",
     "build:ui": "vite build",
-    "test": "node --test --test-concurrency=1 app/tests/job-store.public.test.ts app/tests/public-app.public.test.ts app/tests/public-seed.public.test.ts app/tests/judgment-chart.public.test.mjs app/tests/communications.public.test.ts app/tests/boss-recruitment-badges.public.test.mjs app/tests/communications-ui.public.test.mjs app/tests/greet-launch.public.test.mjs app/tests/resume-applications.public.test.ts app/tests/communication-ai-prompt.public.test.mjs app/tests/daily-observations.public.test.ts app/tests/audit-repair.public.test.ts",
+    "test": "node --test --test-concurrency=1 app/tests/*.public.test.* skills/job-search/test/*.test.mjs",
     "verify:extension": "npm --prefix platforms/boss/extension run verify",
     "verify": "npm run build:ui && npm test && npm run verify:extension && node scripts/verify-repo.mjs && node scripts/audit-public.mjs",
     "prestart": "npm run build:ui",
-    "test:browser": "node --test app/tests/job-browser.public.test.ts",
+    "test:browser": "node --test app/tests/job-browser.test.ts",
     "dev:ui": "vite --host 127.0.0.1"
   },
   "dependencies": {

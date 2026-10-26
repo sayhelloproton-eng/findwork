@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {openJobsDatabase,importList,importDetail,queryJobs,decideJob,importGreet,getJob} from '../db/ingestion/job-store.ts';
-import {getCommunicationCandidates,getTodayCommunications,reserveCommunicationBatch,checkCommunicationSend} from '../server/communications.ts';
+import {getCommunicationCandidates,getTodayCommunications,reserveCommunicationBatch,checkCommunicationSend,reconcileUnlaunchedCommunicationBatch,retryCommunication} from '../server/communications.ts';
 
 const list=(id:string)=>({code:0,zpData:{jobList:[{encryptJobId:id,securityId:'security-'+id,jobName:'合成前端工程师',salaryDesc:'20-30K',cityName:'上海',brandName:'合成公司'}]}});
 const worth=(db:any,id:string)=>decideJob(db,{jobId:id,status:'WORTH',reason:'职责合成匹配'});
@@ -88,4 +88,58 @@ test('HTTP communication endpoints provide independent read models and persist a
  assert.equal((await get('/api/communications/today')).total,1);
  assert.equal((await get('/api/communications/today')).items[0].job_id,jobId);
  assert.equal((await get('/api/communications/candidates')).total,0);
+});
+
+test('strict CLI-only reconciliation releases only exactly proven unlaunched claims',t=>{
+ const db=openJobsDatabase(':memory:');t.after(()=>db.close());
+ importList(db,list('reconcile-one'));importList(db,list('reconcile-two'));worth(db,'reconcile-one');worth(db,'reconcile-two');
+ const reserved=reserveCommunicationBatch(db,{jobIds:['reconcile-one','reconcile-two']});
+ const first=reserved.items[0],second=reserved.items[1];
+ const firstRow=getJob(db,first.jobId),secondRow=getJob(db,second.jobId);
+ const make=()=>({contract:'findwork.unlaunched-greet-reconciliation.v1',apply:false,
+  items:[{jobId:first.jobId,actionId:first.actionId,claimedAt:firstRow.claimed_at}],
+  evidence:{queueIdle:true,unknownSideEffects:0,receiptMatches:0,operatorVerified:true,checkedAt:new Date().toISOString()}});
+ const request=make();
+ assert.throws(()=>reconcileUnlaunchedCommunicationBatch(db,{...request,evidence:{}}),/UNLAUNCHED_EVIDENCE_REQUIRED/);
+ assert.throws(()=>reconcileUnlaunchedCommunicationBatch(db,{...request,items:[{...request.items[0],actionId:second.actionId}]}),/RECONCILIATION_STATE_CHANGED/);
+ assert.equal(reconcileUnlaunchedCommunicationBatch(db,request).released,0);
+ assert.equal(getJob(db,first.jobId).communication_state,'IN_FLIGHT');
+ assert.equal(reconcileUnlaunchedCommunicationBatch(db,{...request,apply:true}).released,1);
+ assert.equal(getJob(db,first.jobId).communication_state,'NONE');
+ assert.equal(getJob(db,first.jobId).action_id,null);
+ assert.equal(getJob(db,second.jobId).communication_state,'IN_FLIGHT');
+ assert.throws(()=>reconcileUnlaunchedCommunicationBatch(db,{...request,apply:true}),/RECONCILIATION_STATE_CHANGED/);
+});
+
+test('daily quota excludes failed attempts and reserves in-flight capacity independently',t=>{
+ const db=openJobsDatabase(':memory:');t.after(()=>db.close());
+ const ids=Array.from({length:155},(_,i)=>'failed-quota-'+i);
+ importList(db,{code:0,zpData:{jobList:ids.map(encryptJobId=>({encryptJobId,jobName:'合成失败岗位'}))}});
+ db.prepare("UPDATE jobs SET communication_state='FAILED',claimed_at=?").run(new Date().toISOString());
+ importList(db,list('quota-available'));worth(db,'quota-available');
+ const result=reserveCommunicationBatch(db,{jobIds:['quota-available']});
+ assert.equal(result.usedBefore,0);assert.equal(result.reservedBefore,0);assert.equal(result.quota,150);
+});
+test('explicit reminder retry is idempotent, preserves prior event evidence and permits a new successful receipt',t=>{
+ const db=openJobsDatabase(':memory:');t.after(()=>db.close());importList(db,list('retry-reminder'));worth(db,'retry-reminder');
+ reserveCommunicationBatch(db,{jobIds:['retry-reminder']});
+ const stamp=new Date().toISOString();
+ importGreet(db,{contract:'boss-greet-result.v1',jobId:'retry-reminder',method:'POST',endpoint:'/wapi/zpgeek/friend/add.json',startedAt:stamp,finishedAt:stamp,result:'FAILED',httpStatus:200,response:{code:1,message:'开聊提醒',zpData:{bizData:{chatRemindDialog:{blockLevel:0,title:'温馨提示',content:'请确认提醒'}}}}});
+ const previous=getJob(db,'retry-reminder');
+ const retried=retryCommunication(db,{jobId:'retry-reminder',finishedAt:stamp});assert.equal(checkCommunicationSend(db,retried).allowed,true);
+ assert.deepEqual(retryCommunication(db,{jobId:'retry-reminder',finishedAt:stamp}),retried);
+ assert.equal(db.prepare("SELECT count(*) n FROM job_events WHERE event_type='GREET_RETRY_AUTHORIZED' AND source_hash=?").get(previous.greet_source_hash).n,1);
+ const after=new Date().toISOString();importGreet(db,{contract:'boss-greet-result.v1',jobId:'retry-reminder',method:'POST',endpoint:'/wapi/zpgeek/friend/add.json',startedAt:after,finishedAt:after,result:'SUCCESS',httpStatus:200,response:{code:0}});
+ assert.equal(getJob(db,'retry-reminder').communication_state,'SUCCEEDED');
+ assert.equal(importGreet(db,JSON.parse(previous.greet_raw_json)).communication_state,'SUCCEEDED','previous imported failure must not overwrite or block reading the new success');
+ assert.throws(()=>retryCommunication(db,{jobId:'retry-reminder',finishedAt:stamp}),/RETRY_NOT_ALLOWED/);
+});
+test('closed jobs cannot retry; previous platform quota rejection permits an explicit retry below150 successes',t=>{
+ const db=openJobsDatabase(':memory:');t.after(()=>db.close());
+ for(const [id,response] of [['closed-retry',{code:1,message:'该职位已不存在'}],['capped-retry',{code:1,message:'开聊提醒',zpData:{bizData:{chatRemindDialog:{blockLevel:0,title:'已达到沟通上限',content:'明天再来'}}}}]]){
+  importList(db,list(id));worth(db,id);reserveCommunicationBatch(db,{jobIds:[id]});const stamp=new Date().toISOString();
+  importGreet(db,{contract:'boss-greet-result.v1',jobId:id,method:'POST',endpoint:'/wapi/zpgeek/friend/add.json',startedAt:stamp,finishedAt:stamp,result:'FAILED',httpStatus:200,response});
+  if(id==='closed-retry'){assert.throws(()=>retryCommunication(db,{jobId:id,finishedAt:stamp}),/RETRY_NOT_ALLOWED/);assert.equal(getJob(db,id).communication_state,'FAILED');}
+  else{assert.equal(retryCommunication(db,{jobId:id,finishedAt:stamp}).jobId,id);assert.equal(getJob(db,id).communication_state,'IN_FLIGHT');}
+ }
 });

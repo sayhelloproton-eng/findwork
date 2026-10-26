@@ -1,4 +1,4 @@
 interface:
   display_name: "Findwork 岗位管理"
-  short_description: "多平台采集入库去重，按个人画像、求职偏好和排除条件评估岗位，授权后沟通并记录回执"
-  default_prompt: "Use $job-search to ingest verified job List/Detail files into Findwork, deduplicate using existing database history, read the three private user policies, assess pending jobs, save decisions, and prepare a consent-gated contact shortlist. Never resend or claim success without a verified receipt."
+  short_description: "按用户任务采集、入库、评估与授权沟通；复用已有环境并核验真实回执"
+  default_prompt: "使用 $job-search，先读项目当前 Skill 并按用户任务分流。复用已有环境，不默认重装、重采集或开发。涉及 BOSS 先读平台 Skill，仅用普通 Chrome 打开扩展正式入口，禁止 Playwright/CDP 或独立 HTTP 操作 BOSS。Greet 同页带参数入队、不带参数观察。只处理已授权岗位；核验原始回执并正式入库，不以领取或入队当成功。失败分析由 AI 完成；仅用户明确手动重发次数/额度类失败，关闭岗位、其他失败和 UNKNOWN 不重发。"

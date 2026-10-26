@@ -2,11 +2,25 @@
 <html lang="zh-CN"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BOSS · Greet Queue</title>
-<style>:root{font:15px/1.6 system-ui,"PingFang SC",sans-serif;color-scheme:light dark}
-body{margin:32px auto;max-width:820px;padding:0 20px}</style>
-</head><body>
-<h1>Greet Queue</h1>
-<p>接收 securityId、jobId 和可选 greeting，确认入队后立即关闭本扩展页面。后台队列独立串行执行，每条结果日志下载完成后随机等待 5～8 秒再执行下一条。</p>
-<p><strong id="state">准备中…</strong></p>
-<script src="greet.js"></script>
-</body></html>
+<style>
+:root{font:15px/1.7 system-ui,"PingFang SC",sans-serif;color:#243247;background:#f5f7fb}*{box-sizing:border-box}body{margin:36px auto;max-width:1000px;padding:0 24px}h1{font-size:26px;margin-bottom:4px}.intro,.hint{color:#66758a;font-size:13px}#dashboard{margin-top:20px}#summary{padding:18px 20px;background:white;border:1px solid #e1e6ee;border-radius:10px;font-weight:600}#notice{padding:22px;background:#fff8ec;border:1px solid #ebcb91;border-radius:10px;margin:16px 0}#pause-title{font-size:19px;color:#8b570d}#pause-detail{margin:8px 0 18px}button{font:inherit;padding:10px 24px;border:0;border-radius:6px;background:#2868d6;color:white;cursor:pointer}button:disabled{background:#e8ebf0;color:#718096;cursor:default}table{width:100%;border-collapse:collapse;background:white;border-radius:10px;font-size:14px}th,td{text-align:left;padding:12px 16px;border-bottom:1px solid #e9edf3;overflow-wrap:anywhere}th{color:#66758a;font-weight:500}td:first-child{width:180px}td:nth-child(2){width:90px}#state{font-weight:600;color:#586a82}details{margin:24px 0;color:#66758a;font-size:13px}summary{cursor:pointer}.actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:16px 0}h2{font-size:16px;margin:24px 0 10px}
+</style></head><body>
+<h1>Greet 沟通队列</h1><p class="intro">在这里查看发送进度；遇到问题会暂停并说明原因。</p>
+<p id="state" role="status">读取队列中…</p>
+<section id="dashboard" hidden>
+<div id="summary"></div>
+<div class="actions"><button id="resume" type="button" disabled>继续执行</button> <button id="clear" type="button" disabled>一键清理</button><span id="action-help" class="hint"></span></div>
+<div id="notice" hidden role="alert"><strong id="pause-title"></strong><p id="pause-detail"></p></div>
+<p class="hint">记录保存在扩展本地，关闭页面不会丢失。跨天只重新统计当天成功数，不自动删除记录；往日记录可手动清理。一键清理只整理本页记录，不删除下载文件，也不修改 Findwork 数据库。</p>
+<h2>发送记录</h2><table><thead><tr><th>岗位</th><th>状态</th><th>结果 / 原因</th><th>操作</th></tr></thead><tbody id="jobs"></tbody></table>
+<h2>同时投递附件简历（可选）</h2>
+<label><input id="resume-enabled" type="checkbox"> 支持直接投递时，同时发送附件简历</label>
+<p class="hint">默认关闭。开启后只对新入队的岗位生效；先确认打招呼成功并保存回执，再处理简历。简历投递失败不改变打招呼结果，也不停止后续打招呼。</p>
+<div class="actions"><select id="resume-file" aria-label="投递的附件简历"><option value="">仅一份附件时自动选择</option></select><button id="resume-options" type="button" disabled>读取附件简历</button><button id="resume-continue" type="button" disabled>继续后续简历任务</button></div>
+<p id="resume-status" role="status">简历投递已关闭</p>
+<p class="hint">继续仅解除简历部分的暂停，不重发失败或未知岗位；不补投已跳过的任务。多份简历请在批量沟通前选择。简历回执单独保存在 application 目录，由 AI 核验入库。</p>
+<table><thead><tr><th>岗位</th><th>简历状态</th><th>原因</th></tr></thead><tbody id="resume-records"></tbody></table>
+</section>
+<details><summary>AI 操作说明</summary><p>这是唯一沟通入口：不带参数查看队列；带 jobId、securityId 提交一条岗位，确认入队后自动关闭该参数页。后台串行执行，每条回执下载完成后随机等待 5～8 秒。成功以原始回执为准，回执由 AI 核对并按任务要求导入 Findwork。</p><pre id="ai-status" aria-label="AI 队列状态"></pre></details>
+<script src="greet-state.js"></script>
+<script src="greet.js"></script><script src="resume-delivery-ui.js"></script></body></html>

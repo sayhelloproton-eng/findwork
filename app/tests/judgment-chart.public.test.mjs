@@ -28,13 +28,14 @@ test('zero-count status stays explicit instead of creating a fourth category',()
 });
 
 import {makeDailyAppearanceOptions,makeDailyCollectedAndGreetOptions} from '../web/dashboard-options.mjs';
-test('daily difference line preserves null when no previous baseline, while valid zero is zero',()=>{
- const dates=[{date:'2026-10-22',label:'10/22',newComparedYesterday:null,coverage:'historical-partial'},
-  {date:'2026-10-23',label:'10/23',newComparedYesterday:3,coverage:'observed'},
-  {date:'2026-10-24',label:'10/24',newComparedYesterday:0,coverage:'observed'}];
+test('daily additions chart shows first-inclusion counts even without comparable previous-day captures',()=>{
+ const dates=[{date:'2026-10-22',label:'10/22',newlyCollected:13,newComparedYesterday:null,coverage:'historical-partial'},
+  {date:'2026-10-23',label:'10/23',newlyCollected:3,coverage:'observed'},
+  {date:'2026-10-24',label:'10/24',newlyCollected:0,coverage:'missing'}];
  const o=makeDailyAppearanceOptions(dates);
  assert.deepEqual(o.series.map(s=>s.type),['line']);
- assert.deepEqual(o.series[0].data,[null,3,0]);
+ assert.deepEqual(o.series[0].data,[13,3,0]);
+ assert.match(o.tooltip.formatter([{dataIndex:0}]),/新增收录 13 条（首次入库）/);
  assert.equal(o.series[0].connectNulls,false);
 });
 test('daily collected and greet bars are grouped, never stacked, and missing collection stays null',()=>{

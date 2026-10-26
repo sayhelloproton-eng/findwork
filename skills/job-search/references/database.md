@@ -1,66 +1,73 @@
-# Findwork v6｜岗位导入与状态管理合同
+# Findwork v7｜数据库、CLI 与动作合同
 
-唯一业务事实库 app/db/runtime/jobs.sqlite；schema v6（jobs、job_details、list_responses、job_events）。原始 BOSS List 每个接口响应保存一份完整 JSON；每个 encryptJobId 对应一条 jobs，原始对象在 list_json，原始 Detail 顶层回执在 job_details.raw_envelope_json、完整 zpData 在 detail_json，Greet 原始回执在 greet_raw_json。未知新字段仍保留。结构化字段只是从原始事实抽取的可查询索引，不覆盖原始值。
+数据库默认 `app/db/runtime/jobs.sqlite`；FINDWORK_DB_PATH 可指定路径，兼容 BOSS_JOBS_DB_PATH。v7包含 jobs、job_details、list_responses、job_events、job_daily_observations、job_daily_batches 六表。数据库及原始文件属于用户；禁止清空、覆盖和直接 SQL 改业务状态。
 
-公司从 encryptBrandId 提取到 jobs.brand_id，无 ID 且为猎头岗的公司筛选标签为“匿名”；城市/公司下拉选项由数据库查询产生，不硬编码公司名单。学历及薪资等原生字段仍保留文本；未证实的 proxyType 编码不得推断派遣。
+建库定义见 `app/db/schema/jobs.sql`，已有库迁移由 `app/db/ingestion/job-store.ts` 的正式 `init` 流程负责。不要把建库 SQL 整份重放到已有库。当前扩展的队列、暂停原因、附件开关和待交接任务保存在扩展自己的持久化存储中，不新增到岗位表；下载后经正式导入才更新数据库业务结果。修改 SQL 注释或项目文档不需要迁移用户库。
 
-## CLI：全部从仓库根目录执行
+## 从仓库根执行
 
-    npm run jobs -- init
-    npm run jobs -- import-list ABSOLUTE_LIST_JSON
-    npm run jobs -- restore-sources
-    npm run jobs -- query '{"status":"PENDING","limit":500}'
-    npm run jobs -- import-detail ABSOLUTE_DETAIL_JSON JOB_ID
-    npm run jobs -- get JOB_ID
-    npm run jobs -- decide-ai '{"jobId":"JOB_ID","status":"WORTH","reason":"基于JD的证据","strategyVersion":"personal-v1","expectedRevision":0,"expectedSourceHash":"CURRENT_SOURCE_HASH"}'
-    npm run jobs -- import-ai-summaries ABSOLUTE_AI_DIGEST_JSON
-    npm run jobs -- claim '{"jobId":"JOB_ID","actionId":"UNIQUE_ACTION_ID"}'
-    npm run jobs -- import-greet ABSOLUTE_GREET_RESULT_JSON JOB_ID
-    npm run jobs -- import-application ABSOLUTE_VERIFIED_APPLICATION_RECEIPT_JSON JOB_ID
-    npm run jobs -- events '{"jobId":"JOB_ID"}'
-    npm run jobs -- query '{"sort":"updated","limit":500}'
+成功输出 `{ok:true,result}`，失败输出 `{ok:false,error}` 并返回非零。以实际输出为证据，不靠文字猜状态。
 
-成功为 {ok:true,result}，失败 {ok:false,error} 和非零退出码。init 返回 version=6。import-list 的 read=added+existing+invalid，单次处理最多 500 条；同文件重入时新增为 0，updated 为 0，ID 去重。对 300 条可跨多个下载批次滚动增量导入，每批记录新增和重复数。缺详情用 Detail 文件补，不用手动填假 JD。get 的 job.decision_basis.hash 为最新 List 哈希或完整 JD SHA256，revision 是乐观版本。decide-ai 强制两者，拒绝冲突，并保存 AI 判断依据。内部 NEED_DETAIL 在 UI 的待评估中，不是第四种判断。AI 已分析但仍有疑问或异常时使用 `decide-ai` 写 `PENDING`，同时给出具体 `reason`：证据、疑点、倾向性建议及用户需要核实的事项。AI 未开始评估的默认 PENDING 可没有理由；AI 写入 PENDING 时与 WORTH/PASS 一样必须提供最新 revision 和 source hash。
+| 动作 | 输入 | 是否写数据 / 完成证据 |
+|---|---|---|
+| `npm run jobs -- help` | 无 | 不开库，输出支持动作与合同位置 |
+| `npm run jobs -- status` | 无 | 只读，不创建/迁移数据库；返回schema、状态数量、成功/已领取数量；浏览器未检查明确为NOT_CHECKED |
+| `npm run jobs -- init` | 无 | 显式准备/迁移已有库，当前返回version=7；不删库 |
+| `import-list ABSOLUTE_LIST_JSON` | 已核验的原始文件 | 写原始批次、按encryptJobId去重；检查read/added/existing/updated/invalid |
+| `import-detail ABSOLUTE_DETAIL_JSON JOB_ID` | 同岗位有效JD | 写详情；get读回岗位身份、JD、source hash |
+| `query JSON` / `get JOB_ID` / `events JSON` | 筛选或jobId | 只读；query最多500条，分页不能漏项 |
+| `decide-ai JSON` | 见下文 | 乐观校验后保存三态与理由，get读回 |
+| `claim-batch '{"jobIds":["JOB_ID"]}'` | 明确授权岗位ID清单 | 原子领取，返回items中的jobId/securityId/actionId；遵守资格、招聘者去重和额度 |
+| `claim '{"jobId":"JOB_ID","actionId":"UNIQUE_ACTION_ID"}'` | 单条明确授权岗位 | 领取同一资格和额度规则，不发送；不能代替批内招聘者去重 |
+| `check-greet '{"jobId":"JOB_ID","actionId":"ACTION_ID"}'` | 同一领取身份 | 只读，与HTTP发送前检查复用规则；allowed=true才可继续 |
+| `import-greet ABSOLUTE_GREET_RESULT_JSON JOB_ID` | 已领取任务的真实回执 | 真实HTTP200、业务code=0、SUCCESS才SUCCEEDED；其他FAILED或UNKNOWN，如实保存 |
+| `retry-greet '{"jobId":"JOB_ID","finishedAt":"EXACT_OLD_RECEIPT_FINISHED_AT"}'` | 用户明确手动重发次数/额度类失败 | 正式重新领取，保留旧事件；返回新actionId。不允许岗位关闭、其他失败或UNKNOWN。通常由Greet页的重新发送按钮调用同一后端规则 |
+| `import-application ABSOLUTE_VERIFIED_APPLICATION_RECEIPT_JSON JOB_ID` | 独立可信简历提交回执 | 登记独立真实简历投递回执；扩展的可选直投使用此流程，不冒充Greet成功 |
+| `restore-receipts` / `restore-sources` | 已有路径和hash | 仅修复可核验原始文件缺口；整体失败不伪造；不是日常采集前置 |
+| `import-ai-summaries ABSOLUTE_AI_DIGEST_JSON` | 模型实际提炼结果 | 写摘要，不能代替decide-ai |
 
-## 正式沟通与投递严格区分
+## 决策输入与来源
 
-claim 仅针对已逐职位授权的 eligible 职位锁定 actionId，并不发消息。只有已 claim 的真实 Greet 回执可通过正式 CLI import-greet；BOSS HTTP 200 且业务 code 0 才记已沟通，否则 FAILED 或 UNKNOWN，不自动重发。原始完整 Greet 结果不裁剪，保存在 jobs.greet_raw_json。旧演示程序有兼容性路径，不能作为正式操作入口。
+`decide-ai` JSON必须包含 jobId、status=WORTH/PASS/PENDING、reason、strategyVersion、expectedRevision、expectedSourceHash。当前锚点来自 get 返回的 job.revision、job.decision_basis.hash。先读取三份已确认私有策略；不可因普通疑问随意PASS，PENDING需写具体缺口和下一步，NEED_DETAIL是内部缺详情状态。
 
-当前扩展没有正式简历投递动作。未来确有外部真实投递回执后，才允许 import-application。回执字段 contract=job-application-result.v1、kind=RESUME_SUBMISSION、jobId、actionId、finishedAt、result=SUCCESS|FAILED|UNKNOWN；SUCCESS 必须 confirmed=true。入库记录 application_state 独立于 Greet，不能根据聊天/打招呼标记“已投递”。
+已有WORTH/PASS默认保留，重复采集不授权复评；decision_stale阻止发送。原文段落摘录不是模型评估。`scripts/jd-extract.mjs`只产生带“原文摘录”标记的摘要，不改变决策。
 
-## 当前接口
+原始List在list_responses.response_json和jobs.list_json；Detail顶层回执在job_details.raw_envelope_json、业务正文在detail_json；Greet完整回执在jobs.greet_raw_json。文件hash及事件用于追溯，不用历史contact/beFriend/alreadySend/alreadyApply当新成功。
 
-- GET /api/jobs（支持 status、education、brandId、location、communicated、limit 1-500、offset，默认更新时间倒序）
-- GET /api/jobs/:id：完整事实、AI 版本锚、原始 Detail
-- GET /api/dashboard：最近 13 周累计及每周新增的既有展示统计
-- GET /api/jobs/:id/events：v6 后新记录事件（旧历史不凭空倒填）
-- POST /api/jobs/:id/decision：与 decide-ai 相同输入合同，AI 判断状态更新
-- POST /api/jobs/:id/application：只有具备可核验投递回执的应用记录入库，不触发实际发送
+## 沟通的唯一执行链
 
-300 条验收先用独立内存库的 500 行合成测试验证吞吐、去重、回滚、字段完整；再对用户指定的真实下载执行逐批导入。所有原始文件应保留，用户要求的工作台 UI 不再调整。
+1. query candidates/get核对授权岗位仍可联系。WORTH不等于eligible；同人已沟通、关闭、历史关系、决策过期、FAILED/UNKNOWN/IN_FLIGHT均不能自动领取。
+2. claim-batch优先用于批量，单条claim用于明确单条任务。保留返回参数，不猜securityId，不重复领取。
+3. 普通Chrome打开扩展 `actions/greet/greet.html?jobId=...&securityId=...&actionId=...&serverOrigin=...`；参数URL编码。真正发送前扩展即时调用HTTP check，CLI check-greet遵守相同规则。
+4. 不带参数的同一Greet页查看队列。参数页ACK关闭只证明入队；成功由原始业务回执证明。
+5. 仅导入本次已核验回执，jobId、领取时间和尝试身份一致（新回执含actionId；旧回执按领取时间和文件hash核对）；get读回。重发后的新尝试不要混入旧文件；历史已导入回执重读不能覆盖新结果，冲突交AI核对。
 
-历史回执完整性补齐：npm run jobs -- restore-receipts 。该命令仅读取已有数据库 source_ref/greet_source 指向的原始文件，核实文件 SHA256、职位身份及 Detail 内容哈希后补齐缺失的 raw_envelope_json / greet_raw_json；不修改旧判断、沟通结果或更新时间，第二次执行应全部 restored=0。缺文件或哈希不符会整体失败，不猜测历史数据。
+Greet是沟通，application_state是正式简历提交，两者分别存储。正式SUCCESS需要独立job-application-result.v1、confirmed=true、非空receipt及唯一actionId。禁止浏览器直接登记伪造SUCCESS。
 
-事件与回执：v6 新岗位保存 COLLECTED，List 内容变化保存 LIST_UPDATED，同源重复导入不产生重复事件。正式投递 SUCCESS 除 confirmed:true 外必须携带非空 receipt 对象；application_action_id 跨岗位唯一。历史 v5 及以前事件不虚构补齐。
+## 额度与统计口径
 
+- 当前本地日上限150条成功；日期是业务回执finishedAt对应的北京时间自然日。失败不计成功，UNKNOWN不计成功。
+- 批量领取中的reserved用于防止并发重复占用容量，是保留名额，不是成功数量；status的remaining表示距离成功目标的差额，availableForClaim表示扣除已保留名额后的可新领数量；明确手动重发只比较真实成功上限，真正发送前仍再校验。
+- “今日成功”来自SUCCEEDED/greet_confirmed_at；“可沟通候选”来自eligible，不等于“WORTH且未成功”的简单筛选。
+- “每日新增收录”按当前库first_seen_at计首次入库，不代表平台发布日期；每日收录按观测表当日岗位ID去重。历史/缺采集基线不冒充0或可靠的两日差集。
+- 列表默认最近三天，日期筛选针对last_seen_at，和全局大盘、采集/更新时间排序不同。
 
-## 增量操作合同（2026-10-24）
+## 领取后没有入队：先读回，不直接重领
 
-默认 query sort=collected，按 jobs.last_seen_at 最新 List 采集倒序；可 sort=updated 按 updated_at 倒序。最近 13 周累积收录与成功沟通的双折线图、最近 14 个北京时间自然日新增收录与沟通的堆叠柱图，以及学历/判断环形图均由 ECharts 实现；日堆叠高度是两种生命周期事件的和，不是去重岗位总数。
-claim 后发实际 Greet 前再次调用 npm run jobs -- check-greet JSON（jobId/actionId）并确认 allowed=true。业务状态 PASS 或证据过期不准发新消息。
-清理使用 node scripts/cleanup-undetailed.mjs preview 读取 count、fingerprint、protectedCount；备份确认后用 apply FINGERPRINT，自动把一致性 SQLite 备份及包含候选岗位 ID 的审计清单写到被 Git 忽略的 app/db/runtime/backups。仅删除无真实 JD 且无成功沟通或正式投递的 jobs，关联表按 FK 清理，原始 list_responses 批次归档保留。
+HTTP请求失败不证明事务未提交。按授权jobId逐条get：IN_FLIGHT表示已领取；NONE仅表示当前读回尚无领取，不可直接断言原请求永远不会执行；无法读取就是结果待确认。扩展空队列也不能单独证明未发送。
 
-补充：当前 v6 job_events 引用 jobs 的外键为限制删除，清理器在同一 SQLite 事务内先删除候选岗位对应 job_events，再删除 jobs；备份仍包含所有原始事件，成功沟通和正式投递的岗位及事件不触碰。
+只有AI已核实“队列空闲、未知副作用0、原始回执匹配0、领取身份完全一致且未开始发送”才允许通过正式CLI恢复：
 
+`npm run jobs -- reconcile-unlaunched-greet ABSOLUTE_RECONCILIATION_JSON`
 
-当本机无法提供真实 AI 模型处理全部 JD 时，可明确采用 node scripts/jd-extract.mjs preview / apply DAY SIGNATURE 对最新采集日执行可重复、基于全文真实小节的纯摘录，工具只对同时明确具备职责/要求章节的职位保存“原文摘录｜”标记并保存 source hash；无章节的职位跳过，不制造内容。这不是 AI 推理，也不更改任何判断状态，完整 AI 决策仍为单独待处理工作。
+JSON：contract=`findwork.unlaunched-greet-reconciliation.v1`，apply=false先预览；items每项jobId/actionId/claimedAt；evidence含queueIdle=true、unknownSideEffects=0、receiptMatches=0、operatorVerified=true、真实checkedAt。证据有效期1小时；仅确认全部事实后才apply=true。不得伪造这份证据以强制重置。原回执、已成功及UNKNOWN任务不适用。
 
+## HTTP映射
 
-### UI 展示口径：PENDING 内部证据区别、图表高度
+GET `/api/jobs`、`/api/jobs/:id`、`/api/jobs/:id/events`、`/api/dashboard`；POST `/api/jobs/:id/decision`。
 
-列表面向用户仍只用 WORTH/PENDING/PASS 三态；筛选 PENDING 且无决策来源和理由时显示“尚未进行岗位评估”，缺 JD 时显示“尚未评估（待补详情）”；有正式决策来源及理由时显示“已评估，仍有疑问：具体理由”，Tooltip 完整展示依据；仅有来源无理由的旧记录显示“评估记录缺少理由，需复核”。原文摘录或 AI JD 摘要不是岗位决策记录，不得自动视为已评估。四张 ECharts 卡片仍为四等分，桌面高度统一 230px，底部图例保持可见。
+GET `/api/communications/candidates`、`/api/communications/today`、`/api/communications/check`；POST `/api/communications/batch` 对应claim-batch，POST `/api/communications/retry`对应retry-greet。POST仅在本地同源调用；默认页重发由扩展通过现有Findwork标签调用，不放宽来源校验。浏览器展示DTO不暴露原始凭据；CLI读取本机完整事实。
 
+清理无详情数据另用 `node scripts/cleanup-undetailed.mjs preview`，核对fingerprint和保护记录后按明确清理授权apply；不作为求职任务的默认步骤。Greet页“一键清理”只整理扩展展示，不改本数据库或下载文件。
 
-### 列表采集日期筛选（2026-10-24）
-
-query 可带 collectedFrom、collectedTo 两个 YYYY-MM-DD 参数，按 date(jobs.last_seen_at,'+8 hours') 作闭区间筛选。页面默认今天；自定义日期以日为单位；快捷“最近一天”等于今天，“最近三天”包含今天及前两天。与 sort=collected/updated 完全独立，仅影响列表，不影响全局图表。
+附件简历可选直投：实际扩展后台需报告 `resume-delivery-opt-in` 能力，默认开关关闭。仅在用户开启后，对随后新入队且打招呼成功并落盘的岗位尝试。执行前扩展调用只读 `/api/resume-applications/check?jobId=...&actionId=...`；核验同一领取动作、当前WORTH/未过期/未关闭、无已登记申请。成功文件为 `job-application-result.v1`，kind=`RESUME_SUBMISSION`，使用独立actionId及可选greetActionId关联；BOSS one-key回执必须method=POST、HTTP200、response.code=0且confirmed=true。通过正式 `import-application ABSOLUTE_JSON JOB_ID` 入库后get读回，不能改communication_state或混算沟通额度。FAILED/UNKNOWN真实记录，未知不重发。

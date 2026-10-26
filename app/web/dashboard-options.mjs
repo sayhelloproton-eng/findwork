@@ -5,15 +5,15 @@ const frame={grid:{top:18,left:34,right:8,bottom:52},yAxis:{type:'value',min:0,m
 const note=d=>d.coverage==='missing'?'无采集记录':d.coverage==='historical-partial'?'至少 '+(d.collected??0)+' 条（历史归档不完整）':(d.collected??0)+' 条';
 export function makeDailyAppearanceOptions(days=[]){
  return{
-  animationDuration:220,aria:{enabled:true,description:'每日较前一天新出现的岗位；无可比基线时不绘制零'},
+  animationDuration:220,aria:{enabled:true,description:'每日首次入库的岗位数量，重复采集不重复计数'},
   color:[COLORS.received],
   tooltip:{trigger:'axis',confine:true,formatter:items=>{
    const d=days[items?.[0]?.dataIndex??0];
-   return d?d.date+'：'+(d.newComparedYesterday==null?'无可靠前日基线或采集范围不同':'较前日新出现 '+d.newComparedYesterday+' 条'):'';
+   return d?d.date+'：新增收录 '+(d.newlyCollected??0)+' 条（首次入库）':'';
   }},
   ...frame,grid:{...frame.grid,bottom:43},
   xAxis:{type:'category',boundaryGap:false,data:days.map(d=>d.label),...axisStyle,axisLabel:{...axisStyle.axisLabel,interval:2}},
-  series:[{name:'较前一天新出现',...line,data:days.map(d=>d.newComparedYesterday??null)}]
+  series:[{name:'新增收录',...line,data:days.map(d=>d.newlyCollected??null)}]
  };
 }
 export function makeDailyCollectedAndGreetOptions(days=[]){

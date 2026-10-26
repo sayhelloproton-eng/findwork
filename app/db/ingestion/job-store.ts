@@ -294,7 +294,11 @@ export function importAiSummaries(db:any,p:any){
   return {stored:seen.size};
  });
 }
-const joinSql=`SELECT j.*,d.detail_json,d.jd_text,d.job_status_desc,d.invalid_status,d.boss_active_desc,d.fetched_at detail_fetched_at FROM jobs j LEFT JOIN job_details d ON d.job_id=j.job_id`;
+// Recruiter-level evidence does not mean this specific job was contacted.
+const recruiterIdentity=(j:string,d:string)=>"coalesce(nullif(json_extract("+j+".list_json,'$.encryptBossId'),''),nullif(json_extract("+d+".detail_json,'$.jobInfo.encryptUserId'),''))";
+const samePersonCommunicated="(j.communication_state<>'SUCCEEDED' AND "+recruiterIdentity('j','d')+" IS NOT NULL AND EXISTS (SELECT 1 FROM jobs prior LEFT JOIN job_details priorDetail ON priorDetail.job_id=prior.job_id WHERE prior.job_id<>j.job_id AND prior.communication_state='SUCCEEDED' AND "+recruiterIdentity('prior','priorDetail')+"="+recruiterIdentity('j','d')+"))";
+const samePersonSelect="CASE WHEN "+samePersonCommunicated+" THEN 1 ELSE 0 END same_recruiter_communicated";
+const joinSql="SELECT j.*,d.detail_json,d.jd_text,d.job_status_desc,d.invalid_status,d.boss_active_desc,d.fetched_at detail_fetched_at,"+samePersonSelect+" FROM jobs j LEFT JOIN job_details d ON d.job_id=j.job_id";
 function present(row:any){
   const list=JSON.parse(row.list_json),detail=row.detail_json?JSON.parse(row.detail_json):null;
   const info=detail?.jobInfo??{},company=detail?.brandComInfo??{},boss=detail?.bossInfo??{};
@@ -319,10 +323,11 @@ function present(row:any){
   const basis=row.screening_basis_hash?getDecisionBasis({has_detail:!!detail,facts,list_hash:row.list_hash}):null;
   const decision_stale=!!row.screening_basis_hash&&row.screening_basis_hash!==basis?.hash;
   const {ai_summary_json,...publicRow}=row;
+  const samePerson=Boolean(row.same_recruiter_communicated);
   const eligible=row.screening_status==='WORTH'&&!decision_stale&&row.application_state==='NONE'&&
-    row.communication_state==='NONE'&&!row.history_blocked&&!facts.closed&&!degreeExclusion.excluded;
-  const blockReason=degreeExclusion.excluded?'学历硬性要求：硕士及以上':facts.closed?'职位已关闭':row.history_blocked?'已有关系或申请记录，请核验后再联系':row.communication_state==='SUCCEEDED'?'已确认沟通':row.communication_state!=='NONE'?'已有联系动作记录，请核验后再联系':null;
-  return{...publicRow,decision_basis:getDecisionBasis({has_detail:!!detail,facts,list_hash:row.list_hash}),decision_stale,ai_summary,ai_summary_status,communicated:Boolean(row.communicated),has_detail:!!detail,list,history_signals:JSON.parse(row.history_signals),facts,eligible,block_reason:blockReason};
+    row.communication_state==='NONE'&&!row.history_blocked&&!facts.closed&&!degreeExclusion.excluded&&!samePerson;
+  const blockReason=degreeExclusion.excluded?'学历硬性要求：硕士及以上':facts.closed?'职位已关闭':row.history_blocked?'已有关系或申请记录，请核验后再联系':row.communication_state==='SUCCEEDED'?'已确认沟通':row.communication_state!=='NONE'?'已有联系动作记录，请核验后再联系':samePerson?'同一招聘者的其他岗位已成功沟通':null;
+  return{...publicRow,decision_basis:getDecisionBasis({has_detail:!!detail,facts,list_hash:row.list_hash}),decision_stale,ai_summary,ai_summary_status,communicated:Boolean(row.communicated),same_recruiter_communicated:samePerson,has_detail:!!detail,list,history_signals:JSON.parse(row.history_signals),facts,eligible,block_reason:blockReason};
 }
 export function getJob(db:any,jobId:string){const row=db.prepare(`${joinSql} WHERE j.job_id=?`).get(id(jobId));if(!row)fail('JOB_NOT_FOUND');return present(row);}
 export function getJobDetail(db:any,jobId:string){const job=getJob(db,jobId),d=db.prepare('SELECT * FROM job_details WHERE job_id=?').get(jobId);return{job,detail:d?{...d,data:JSON.parse(d.detail_json)}:null};}
@@ -377,6 +382,12 @@ export function importDetail(db:any,payload:any,evidence:any={},expectedJobId?:s
     return getJobDetail(db,jobId);
   });
 }
+export function getCommunicationQuota(db:any){
+ const day=localDay(now());
+ const succeeded=(db.prepare("SELECT count(*) n FROM jobs WHERE communication_state='SUCCEEDED' AND date(greet_confirmed_at,'+8 hours')=?").get(day) as any).n;
+ const reserved=(db.prepare("SELECT count(*) n FROM jobs WHERE communication_state IN ('IN_FLIGHT','UNKNOWN') AND date(claimed_at,'+8 hours')=?").get(day) as any).n;
+ return{day,limit:150,succeeded,reserved,remaining:Math.max(0,150-succeeded),availableForClaim:Math.max(0,150-succeeded-reserved)};
+}
 export function claimGreet(db: any, input: any) {
   const jobId=id(input?.jobId), actionId=id(input?.actionId), stamp=now();
   return transaction(db,()=>{
@@ -384,6 +395,8 @@ export function claimGreet(db: any, input: any) {
     if(job.screening_status!=='WORTH'||job.decision_stale||job.facts.closed||job.facts.advanced_degree_excluded)fail('GREET_BLOCKED');
     if (job.action_id===actionId && job.communication_state==='IN_FLIGHT') return job;
     if (!job.eligible) fail('GREET_BLOCKED');
+    const quota=getCommunicationQuota(db);
+    if(quota.succeeded+quota.reserved>=quota.limit)fail('DAILY_COMMUNICATION_LIMIT');
     if (db.prepare('SELECT 1 FROM jobs WHERE action_id=?').get(actionId)) fail('ACTION_ID_CONFLICT');
     db.prepare("UPDATE jobs SET communication_state='IN_FLIGHT',action_id=?,claimed_at=?,updated_at=? WHERE job_id=?")
       .run(actionId,stamp,stamp,jobId);
@@ -392,8 +405,10 @@ export function claimGreet(db: any, input: any) {
 }
 // Claim does not authorize a send after a status change to PASS.
 export function checkGreetBeforeSend(db:any,input:any){
+ const quota=getCommunicationQuota(db);
+ if(quota.succeeded>=quota.limit)fail('DAILY_COMMUNICATION_LIMIT');
  const job=getJob(db,id(input?.jobId)),actionId=id(input?.actionId);
- if(job.screening_status!=='WORTH'||job.decision_stale||job.facts.closed||job.facts.advanced_degree_excluded||job.history_blocked||
+ if(job.screening_status!=='WORTH'||job.decision_stale||job.facts.closed||job.facts.advanced_degree_excluded||job.history_blocked||job.same_recruiter_communicated||
    job.action_id!==actionId||job.communication_state!=='IN_FLIGHT'||job.application_state!=='NONE')fail('GREET_BLOCKED');
  return{jobId:job.job_id,actionId,allowed:true,revision:job.revision};
 }
@@ -417,6 +432,9 @@ export function importGreet(db: any, payload: any, evidence: any = {}, expectedJ
     if(strictClaim&&(!job.action_id||!['IN_FLIGHT','SUCCEEDED','FAILED','UNKNOWN'].includes(job.communication_state)))
       fail('GREET_CLAIM_REQUIRED');
     if (job.greet_source_hash===source.sourceHash) return job;
+    // Already imported older attempts are idempotent, even after a manual retry.
+    if(db.prepare("SELECT 1 FROM job_events WHERE job_id=? AND event_type='GREET' AND source_hash=?").get(jobId,source.sourceHash))return job;
+    if(payload.actionId!=null&&payload.actionId!==job.action_id)fail('GREET_ACTION_CONFLICT');
     if (job.greet_started_at && job.greet_started_at!==start) fail('GREET_ATTEMPT_CONFLICT');
     if (job.claimed_at && start<job.claimed_at) fail('GREET_PREDATES_CLAIM');
     // Confirmed success is monotonic. Stale/uncertain receipts cannot downgrade it.
@@ -439,11 +457,14 @@ export function importApplication(db:any,p:any,evidence:any={},expectedJobId?:st
  const ended=timestamp(p.finishedAt);
  if(p.result==='SUCCESS'&&p.confirmed!==true)fail('APPLICATION_UNCONFIRMED');
  if(p.result==='SUCCESS'&&(!object(p.receipt)||!Object.keys(p.receipt).length))fail('APPLICATION_RECEIPT_REQUIRED');
+ if(p.platform==='BOSS'&&p.endpoint==='/wapi/zpgeek/resume/onekeydeliver.json'&&p.result==='SUCCESS'&&
+  (p.method!=='POST'||p.receipt?.httpStatus!==200||p.receipt?.response?.code!==0||p.error||p.sideEffectState==='UNKNOWN'))fail('APPLICATION_UNCONFIRMED');
  const state=p.result==='SUCCESS'?'SUCCEEDED':p.result;
  const source=evidenceFor(p,evidence);
  return transaction(db,()=>{
   const job=getJob(db,jobId);
   if(job.application_source_hash===source.sourceHash)return job;
+  if(p.greetActionId&&p.greetActionId!==job.action_id)fail('APPLICATION_ACTION_CONFLICT');
   if(job.application_state==='SUCCEEDED')fail('APPLICATION_ALREADY_CONFIRMED');
   if(job.application_action_id&&job.application_action_id!==actionId)fail('APPLICATION_ACTION_CONFLICT');
   db.prepare('UPDATE jobs SET application_state=?,application_action_id=?,application_at=?,application_raw_json=?,application_source_hash=?,updated_at=? WHERE job_id=?')
@@ -472,7 +493,8 @@ export function queryJobs(db:any,input:any={}){
  const opened="(coalesce(d.invalid_status,0)<>1 AND coalesce(d.job_status_desc,'') NOT LIKE '%已关闭%' AND coalesce(d.job_status_desc,'') NOT LIKE '%停止招聘%')";
  const eligible="(j.screening_status='WORTH' AND j.communication_state='NONE' AND j.application_state='NONE' "+
   "AND (j.screening_basis_hash IS NULL OR j.screening_basis_hash=coalesce(job_sha256(d.jd_text),j.list_hash)) "+
-  "AND j.history_blocked=0 AND job_degree_hard_exclude(j.education,json_extract(d.detail_json,'$.jobInfo.degreeName'),d.jd_text)=0 AND "+opened+")";
+  "AND j.history_blocked=0 AND NOT "+samePersonCommunicated+
+  " AND job_degree_hard_exclude(j.education,json_extract(d.detail_json,'$.jobInfo.degreeName'),d.jd_text)=0 AND "+opened+")";
  const clauses=[],params:any[]=[];
  if(input.collectedFrom){clauses.push("date(j.last_seen_at,'+8 hours')>=?");params.push(input.collectedFrom);}
  if(input.collectedTo){clauses.push("date(j.last_seen_at,'+8 hours')<=?");params.push(input.collectedTo);}
@@ -513,7 +535,7 @@ export function queryJobs(db:any,input:any={}){
  const candidateEducationOrder=degreeRank+",coalesce(j.boss_online,-1) DESC,j.last_seen_at DESC,j.job_id ASC";
  const order=input.sort==='candidate-education'?candidateEducationOrder:
   input.sort==='recommended'?recommended:input.sort==='collected'||input.sort==='recent'||input.sort==null?'j.last_seen_at DESC,j.job_id ASC':input.sort==='online'?'coalesce(j.boss_online,-1) DESC,j.last_seen_at DESC,j.job_id ASC':'j.updated_at DESC,j.job_id ASC';
- const items=db.prepare('SELECT j.*,d.detail_json,d.jd_text,d.job_status_desc,d.invalid_status,d.boss_active_desc,d.fetched_at detail_fetched_at'+join+where+' ORDER BY '+order+' LIMIT ? OFFSET ?').all(...params,limit,offset).map(present);
+ const items=db.prepare('SELECT j.*,d.detail_json,d.jd_text,d.job_status_desc,d.invalid_status,d.boss_active_desc,d.fetched_at detail_fetched_at,'+samePersonSelect+join+where+' ORDER BY '+order+' LIMIT ? OFFSET ?').all(...params,limit,offset).map(present);
  const summary:any=db.prepare("SELECT count(*) total,sum(CASE WHEN j.screening_status='WORTH' THEN 1 ELSE 0 END) worth,sum(CASE WHEN j.screening_status='PASS' THEN 1 ELSE 0 END) pass,sum(CASE WHEN j.screening_status IN ('PENDING','NEED_DETAIL') THEN 1 ELSE 0 END) pending,sum(CASE WHEN j.screening_status='NEED_DETAIL' THEN 1 ELSE 0 END) need_detail,sum(CASE WHEN j.communication_state='SUCCEEDED' THEN 1 ELSE 0 END) communicated,sum(CASE WHEN "+eligible+" THEN 1 ELSE 0 END) eligible"+join).get();
  const locations=db.prepare("SELECT DISTINCT city FROM jobs WHERE city IS NOT NULL AND trim(city)<>'' ORDER BY city").all().map((r:any)=>r.city);
  const companies=db.prepare("SELECT brand_id id,min(brand_name) name,count(*) count FROM jobs WHERE brand_id IS NOT NULL GROUP BY brand_id ORDER BY name").all();
@@ -523,12 +545,12 @@ export function queryJobs(db:any,input:any={}){
 }
 // Statistics are read from persisted job lifecycle timestamps, never from simulated chart fixtures.
 export function getJobsDashboard(db:any){
- const rows=db.prepare('SELECT screening_status,communication_state,greet_confirmed_at,education FROM jobs').all() as any[];
+ const rows=db.prepare('SELECT screening_status,communication_state,greet_confirmed_at,education,first_seen_at FROM jobs').all() as any[];
  const today=localDay(now()),base=Date.parse(today+'T00:00:00Z');
  const days=Array.from({length:14},(_,i)=>{
   const date=new Date(base-(13-i)*86400000).toISOString().slice(0,10);
   return{date,label:date.slice(5).replace('-','/'),collected:null as number|null,
-   newComparedYesterday:null as number|null,communicated:0,
+   newComparedYesterday:null as number|null,newlyCollected:0,communicated:0,
    coverage:'missing',scopeComparable:false} as any;
  });
  const from=new Date(base-14*86400000).toISOString().slice(0,10);
@@ -558,6 +580,8 @@ export function getJobsDashboard(db:any){
   }
  }
  for(const r of rows){
+  const firstDay=days.find(d=>d.date===localDay(r.first_seen_at));
+  if(firstDay)firstDay.newlyCollected++;
   if(r.communication_state!=='SUCCEEDED'||!r.greet_confirmed_at)continue;
   const stamp=localDay(r.greet_confirmed_at);
   const d=days.find(x=>x.date===stamp);
@@ -575,5 +599,5 @@ export function getJobsDashboard(db:any){
   if(Object.hasOwn(judgment,status))judgment[status as keyof typeof judgment]++;
  }
  return{dailyWindow:'recent-14-days',days,education,judgment,total:rows.length,
-  methodology:'Date=Asia/Shanghai. Daily collected=distinct job IDs in successful imported BOSS List responses. Same IDs on repeated requests or across scopes count once per day. New vs yesterday=day-set difference only when both adjacent dates have hash-verified capture timestamps and matching expectation/query fingerprints. Archived data is only a lower bound (historical-partial) and missing days remain null, not zero. Greet counts confirmed successes by their own date, independently.'};
+  methodology:'Date=Asia/Shanghai. Daily newlyCollected=stored jobs grouped by first_seen_at; repeated collection does not add new jobs. This measures first database inclusion, not platform publication. Daily collected=distinct job IDs in successful imported BOSS List responses. Same IDs on repeated requests or across scopes count once per day. New vs yesterday=day-set difference only when both adjacent dates have hash-verified capture timestamps and matching expectation/query fingerprints. Archived data is only a lower bound (historical-partial) and missing days remain null, not zero. Greet counts confirmed successes by their own date, independently.'};
 }

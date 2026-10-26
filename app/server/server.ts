@@ -5,11 +5,11 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { openJobsDatabase,queryJobs,getJobsDashboard,getJobDetail,decideAiJob,getJobEvents } from '../db/ingestion/job-store.ts';
 import { seedDatabase,seedLocalFixtures } from './seed.ts';
-import {getCommunicationCandidates,getTodayCommunications,reserveCommunicationBatch,checkCommunicationSend} from './communications.ts';
-import {getResumeApplicationSignals} from './resume-applications.ts';
+import {getCommunicationCandidates,getTodayCommunications,reserveCommunicationBatch,checkCommunicationSend,retryCommunication} from './communications.ts';
+import {getResumeApplicationSignals,checkResumeApplication} from './resume-applications.ts';
 import {publicJob,publicJobsQuery,publicJobDetail} from './public-dto.mjs';
 const WEB=resolve(import.meta.dirname,'../web');
-const files:Record<string,[string,string]>={'/communications':['dist/index.html','text/html'],'/':['dist/index.html','text/html'],'/app.js':['app.js','text/javascript'],'/styles.css':['styles.css','text/css'],'/job-view.js':['job-view.js','text/javascript']};
+const files:Record<string,[string,string]>={'/communications':['dist/index.html','text/html'],'/':['dist/index.html','text/html'],'/styles.css':['styles.css','text/css']};
 const json=(res:any,body:any,status=200)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));};
 export function createApp(options:any={}){
  const demo=!!(options.demo||options.localFixtures),db=openJobsDatabase(demo?':memory:':options.dbPath);
@@ -18,7 +18,7 @@ export function createApp(options:any={}){
   try{
    const url=new URL(req.url||'/','http://localhost');
    const decision=url.pathname.match(/^\/api\/jobs\/([^/]+)\/decision$/);
-   if(req.method==='POST'&&(decision||url.pathname==='/api/communications/batch')){
+   if(req.method==='POST'&&(decision||['/api/communications/batch','/api/communications/retry'].includes(url.pathname))){
     const host=req.headers.host??'',origin=req.headers.origin;
     const ownOrigin='http://'+host;
     if(!['127.0.0.1','localhost','[::1]'].includes(new URL(ownOrigin).hostname)||
@@ -27,15 +27,17 @@ export function createApp(options:any={}){
     let body='',bytes=0;for await(const chunk of req){bytes+=chunk.length;if(bytes>16384)throw Error('PAYLOAD_TOO_LARGE');body+=chunk;}
     let input:any;try{input=JSON.parse(body);}catch{throw Error('INVALID_JSON');}
     if(!input||typeof input!=='object'||Array.isArray(input))throw Error('INVALID_PAYLOAD');
-    if(url.pathname==='/api/communications/batch'){
+    if(['/api/communications/batch','/api/communications/retry'].includes(url.pathname)){
       if(demo)return json(res,{error:'DEMO_SEND_BLOCKED'},403);
-      return json(res,reserveCommunicationBatch(db,input));
+      return json(res,url.pathname==='/api/communications/retry'?retryCommunication(db,input):reserveCommunicationBatch(db,input));
     }
     const wanted=decodeURIComponent(decision![1]);
     const {jobId,...fields}=input;if(jobId!=null&&jobId!==wanted)throw Error('JOB_ID_MISMATCH');
     return json(res,publicJob(decideAiJob(db,{...fields,jobId:wanted})));
    }
    if(req.method!=='GET')return json(res,{error:'METHOD_NOT_ALLOWED'},405);
+   if(url.pathname==='/api/workspace')return json(res,{repoRoot:resolve(import.meta.dirname,'../..')});
+   if(url.pathname==='/api/resume-applications/check'){if(demo)return json(res,{error:'DEMO_SEND_BLOCKED'},403);return json(res,checkResumeApplication(db,Object.fromEntries(url.searchParams)));}
    if(url.pathname==='/api/resume-applications/signals')return json(res,getResumeApplicationSignals(db,Object.fromEntries(url.searchParams)));
    if(url.pathname==='/api/communications/candidates')return json(res,publicJobsQuery(getCommunicationCandidates(db,Object.fromEntries(url.searchParams))));
    if(url.pathname==='/api/communications/today')return json(res,publicJobsQuery(getTodayCommunications(db,Object.fromEntries(url.searchParams))));

@@ -1,23 +1,59 @@
-# Findwork 架构与职责边界
+# Findwork 当前架构与能力范围
 
-目标：多平台职位统一采集、入库、去重、可解释 AI 评估、有限投递机会的决策与动作结果、统计大盘。后续招聘者沟通和面试跟进不属于本产品。
+Findwork 是用户本机的岗位管理和AI辅助决策系统，不接管持续聊天或面试管理。当前支持BOSS平台；平台扩展可独立使用，Findwork负责后续统一数据管理。
 
-platforms/{platform}/ 只负责平台动作和可验证原始文件，首个实现为 BOSS；扩展本身不需要后端和 DB。app/db/ingestion 是公用导入适配层的唯一 Owner，app/db/schema 是共享 DB 合同；BOSS 仅是当前 v6 数据格式的历史基线，其他平台未来将通过 Mapper 接入 DB 而不是伪装成 BOSS。app/server、app/web 统一负责查询、评估、筛选、投递决策与大盘。
+## 唯一事实来源
 
-两份 Skill 并列维护在 skills/job-search 与 skills/boss-extension。前者引导整个 AI 求职工作流，后者指导扩展使用、下载、真实回执核验。所有平台真实沟通/投递都需要明确逐职位授权；Greet 与正式简历提交必须分开记录。
+| 范围 | Owner | 操作合同 |
+|---|---|---|
+| AI业务流程与私有策略 | skills/job-search | SKILL.md及references/database.md |
+| 平台动作与回执 | platforms/boss/extension | skills/boss-extension/SKILL.md |
+| 原始导入、去重、决策、发送资格 | app/db/ingestion | v7 schema、job-store.ts |
+| 本地接口与批量领取 | app/server | CLI和HTTP复用资格规则 |
+| 用户列表与统计 | app/web/antd-entry.jsx、communications.jsx | React当前工作台 |
 
-v6 保留 jobs、job_details、list_responses、job_events 四表、原始 JSON、去重和乐观版本。未来有第二个平台时再设计跨平台唯一性及来源映射，不改写既有记录。私有 SQLite 在 app/db/runtime/，个人岗位策略在 .private/job-search/，全部 Git 忽略。仓库仅公开源码与合成测试数据，不包含用户私有历史数据。独立 Chrome 现场测试必须另验，不冒充离线 PASS。
+AI首次接管从GETTING_STARTED按任务路由，不重复安装已有环境。工程修改读AGENTS/CONTRIBUTING。平台操作前必须读平台Skill；AI禁止通过Playwright/CDP等直接控制或监听BOSS，只调度普通Chrome的扩展正式入口。
 
-BOSS 技术演进及成功/失败方案详见 platforms/boss/extension/docs/DESIGN.md。
+## 数据模型与口径
 
+v7六表：jobs、job_details、list_responses、job_events、job_daily_observations、job_daily_batches。岗位以平台内encryptJobId去重，原始文件/hash/事件保留。未来第二个平台通过Mapper接入，不伪装成BOSS。
 
-2026-10-24：工作台保留四等分，使用 ECharts 最近 13 周累计收录/累计已沟通双折线、最近 14 天新增/已沟通事件堆叠柱、学历环图、判断三态环图；水平图例和 Tooltip 统一。日堆叠的两类业务事件可能涉及同一岗位，不是去重岗位合计。列表以 last_seen_at（最近采集）为缺省排序、支持 updated_at 单选。
-主控 Job Search 在逐岗位用户授权后 claim，实际发出平台 Greet 前 check-greet 再检；BOSS 独立扩展本身不掌握 DB 状态。PASS 后不新发，历史先沟通再 PASS 的回执保留。管理岗/应届岗/大厂直招与外包例外属于私有确认策略。无 JD 且未沟通清理前备份、保存审计清单，受保护历史记录及原始批次保留。
+私有SQLite位于app/db/runtime/，三项用户策略位于.private/job-search/，全部Git忽略。采集去重不覆盖已有判断和成功历史；模型评估用revision/source hash防止旧结论覆盖新事实。WORTH/PASS/PENDING为用户三态；NEED_DETAIL内部仍归待评估。
 
+工作台保留四张图：最近14天按首次入库日期的新增收录折线、每日去重收录与成功沟通分组柱、学历分布、判断占比。新增收录不等于平台新发布；缺采集记录为null。现存newComparedYesterday字段仅在相邻日期有真实相同范围证据时可计算，不是现行首图。
 
-2026-10-24：列表增加以采集日期为口径的独立筛选。按 jobs.last_seen_at 的北京时间自然日筛选，支持指定日期、最近一天（今天）、最近三天（今天及前两天）；默认为今天，重置回到今天。该筛选与原有采集时间/更新时间排序相互独立，不改变四张整体大盘的数据范围。
+列表日期按last_seen_at筛选，默认最近三天；采集时间/更新时间是排序选择，不改变全局大盘。值得投且未成功与可安全沟通候选数量不同，后者额外排除关闭、过期、同人已联系、历史关系和异常动作。
 
+## 沟通与恢复
 
-2026-10-25：v7 引入每日岗位观测表 job_daily_observations(local_day,scope,job_id) 与归档批次表 job_daily_batches。每次成功 List 导入记录北京时间当天按 jobId 去重的岗位，重复接口响应当天只算一次，跨天仍算各天收录。BOSS 响应只有 zpData.type 可验证作为稳定的范围维度；前后日期该类型集合不匹配不计算差集。旧 list_responses 的 imported_at 只能证明首度归档，回填值明确标记 historical-partial，不能冒充完整每日采集记录；无记录日为 null 不是 0。折线图按两个相邻的、非历史的、同范围日期计算今天集合减昨天集合；另一张分组柱状图分别表示每日去重收录量和真实沟通成功（greet_confirmed_at 的北京时间日期）；不堆叠、互不代表包含关系。学历与决策图不变。
+唯一平台入口actions/greet/greet.html：带参数入队后关闭，不带参数看队列、失败原因及人工操作。队列由扩展后台持久化、串行执行，5～8秒间隔；页面不承担后台发送生命周期。
 
-2026-10-25 审计修复：UI DTO 仅提供展示字段，不再直接暴露 BOSS action credentials、原始 JSON、私有来源路径；跨页选择复制前重新验证候选。简历正式 SUCCESS 禁止浏览器直接 POST，只能由本地 CLI 根据下载原文件和哈希证据导入。每日观测缺 hash-verified 捕获时间及明确求职期望/查询指纹则标记 historical-partial、不参与两日新增差集；已核对原始文件且范围明确时按捕获自然日归档。图表前端每30秒重新获取一次（页面可见时）。
+Findwork领取 → 参数页入队 → 发送前check → 扩展发送 → 下载原始JSON → AI核验并import-greet → 数据库读回。领取、入队、业务成功和入库是四个不同证据。领取响应丢失须逐jobId读回，不以网络错误认定未领取。
+
+当前日上限150个真实成功；CLI/HTTP共用判断。扩展与DB均按业务finishedAt的北京时间日期统计，下载时间不改成功所属日；失败不计成功。平台上限提示单独保留为错误，未达本地150时用户可明确手动重发次数/额度类失败；岗位关闭、其他失败、风控和UNKNOWN不重发。没有自动循环重试。
+
+本地当天成功满150或平台明确报当日上限、且没有排队/执行中/未知/未落盘记录时可清理扩展显示；次日不自动删除历史，往日已结算记录可手动清理，混合记录只清理往日部分；内部防重保留，原始下载与数据库不变。用户不负责核对JSON，AI负责分析证据与正式入库。安全验证与平台确认由用户正常处理。
+
+运行扩展通过现有身份桥向Findwork返回后台协议版本与能力；ID/版本号/源码/构建/已加载实例/真实发送验收不能互相冒充。
+
+## 正式、兼容与研究能力
+
+正式：扩展List/Detail/Greet及结果下载，Findwork入库、决策、筛选、领取、受限手动重发、统计。新增可选附件简历直投执行器，Greet同页开关默认关闭，后台能力名resume-delivery-opt-in；只处理开启后新入队且Greet成功落盘的岗位。简历结果独立、失败不改变Greet，UNKNOWN不重发；原始application回执经正式import-application入库。工程离线通过不等于真实平台验收通过。
+
+兼容：旧greet-status地址只跳转Greet默认页；旧DOM前端仅保留兼容测试，不从正式服务提供；旧复制提示词辅助函数不参与当前UI执行，其内容不得指引另一路流程。
+
+研究：docs/research及扩展application/probe源码仅用于明确授权的研究，不打进正式扩展包，不随生产manifest自动注入。研究观察记录不是投递能力证明。
+
+## 验证边界
+
+数据库建库定义为 `app/db/schema/jobs.sql`（v7）；现有库升级由 `job-store.ts` 管理。队列展示清理、待简历交接和平台暂停属于扩展持久化状态，不等同于删除或修改数据库结果。当前改动没有新增表或提升 schema 版本，禁止为加载新扩展而重建数据库。
+
+npm run verify构建UI、运行全部离线应用/Skill测试、扩展测试和构建、文档及公开内容审计。npm run test:browser仅访问隔离的本地合成数据，核验当前工作台；不接触BOSS、不发真实沟通。
+
+工程通过不等于真实平台通过。真实采集/发送需另行明确授权、正式入口和原始回执证据。具体平台技术演进见platforms/boss/extension/docs/DESIGN.md；历史设计不再作为当前操作合同。
+
+## 1.1.25 修复后的交接边界
+
+Greet成功与可选简历PENDING标记在同一次队列状态写入中完成；任务参数复用原retryRequest，避免复制凭据膨胀。后台优先核对PENDING，已进入SENDING/RECEIPT_PENDING的中断只标UNKNOWN，不重放。普通简历拒绝保留Greet成功并允许下一条Greet；安全验证、未知副作用及回执不完整传播平台停止标记。失败重发保留原授权附件快照，成功附件身份写入独立application回执。扩展/显示/入库的未知语义统一，UNKNOWN不能清理。
+
+采集启动由现有本地身份桥交给扩展的collection launcher，仅负责核查/打开/复用Detail入口，不负责采集或BOSS请求。当前已有采集、未结算下载、正在执行的沟通/简历任务或多控制页时拒绝新开；同一requestId丢失ACK只核对原页。Detail session保留requestId用于与runId对应，表单可只读核查并准备下一批。真实平台验收见ACCEPTANCE.md，工程PASS与现场PASS分别记录。

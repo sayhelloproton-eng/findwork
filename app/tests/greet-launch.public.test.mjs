@@ -1,7 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import {resolve} from 'node:path';
 import {buildGreetPageUrl,openGreetPlaceholders,closeGreetPlaceholders,validBossExtensionId} from '../web/greet-launch.mjs';
 const extId='a'.repeat(32);
 const job=(n)=>({jobId:'job-00000000'+String(n).padStart(2,'0'),securityId:'sec id&'+n,actionId:'fw-test-'+n});
@@ -43,11 +41,4 @@ test('no invented extension id and no unsafe/partial action URL',()=>{
  assert.throws(()=>buildGreetPageUrl('not-installed',job(1),'http://127.0.0.1:4318'),/BOSS_EXTENSION_NOT_DETECTED/);
  assert.throws(()=>buildGreetPageUrl(extId,{jobId:'',securityId:'s',actionId:'a'},'http://127.0.0.1:4318'),/INVALID_GREET_PAGE_PARAMETERS/);
  assert.throws(()=>buildGreetPageUrl(extId,job(1),'https://attacker.invalid'),/INVALID_FINDWORK_ORIGIN/);
-});
-test('communication UI only copies prompts; it never opens Greet pages',()=>{
- const root=resolve(import.meta.dirname,'../..');
- const ui=readFileSync(resolve(root,'app/web/communications.jsx'),'utf8');
- assert.match(ui,/复制 AI 执行提示词/);
- assert.match(ui,/makeCommunicationAiPrompt/);
- assert.doesNotMatch(ui,/openGreetPlaceholders|window\.open|\/api\/communications\/batch|FINDWORK_BOSS_GREET_BATCH/);
 });

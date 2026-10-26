@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BOSS · 简历投递接口观察</title>
+<style>body{font:15px/1.7 system-ui,"PingFang SC",sans-serif;max-width:860px;margin:24px auto;padding:0 18px}button{padding:9px 14px}pre{white-space:pre-wrap;word-break:break-all}</style></head>
+<body><h1>简历投递接口 · 只读观察</h1>
+<p>本页面不会发起打招呼或投递。观察开启后，仅记录 BOSS 站点原生 POST 请求的路径、HTTP 状态和时间（不记录参数、请求体、响应体或账号信息）。</p>
+<p>仅当你<strong>自主执行</strong>平台原生的“投递简历”操作时，才有机会观察到候选请求；这些记录仍需核对，不能直接认定为投递接口。</p>
+<button id="start">开启 3 分钟观察</button> <button id="clear">清除观察记录</button>
+<p id="state" role="status">尚未开启观察</p><pre id="results">无记录</pre>
+<script src="probe.js"></script></body></html>
